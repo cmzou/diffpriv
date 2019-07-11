@@ -1,0 +1,192 @@
+---
+title: "hmda results visualization r"
+author: "Justina Zou"
+date: "July 8, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+
+source("./functions.R")
+```
+
+```{r include=FALSE}
+many_eps <- read_csv("../../../average_data1kmodels_1kdata_morestats.csv")
+```
+
+```{r eval=FALSE, include=FALSE}
+# Nonprivate model
+# Privacy level: 0 
+#  Regularization parameter: 0.001 
+#  Convergence of optimization : TRUE 
+#  C-index (AUC): 0.765162015534797 
+#  Status: ok 
+# 
+#                                                                     (Intercept) 
+#                                                                      1.55908360 
+#                                                           tract_to_msamd_income 
+#                                                                      0.73395046 
+#                                                  number_of_owner_occupied_units 
+#                                                                      0.33532121 
+#                                                             minority_population 
+#                                                                     -0.45441806 
+#                                                                loan_amount_000s 
+#                                                                      2.31909335 
+#                                                   hud_median_family_income_000s 
+#                                                                      0.94358958 
+#                                                           applicant_income_000s 
+#                                                                      2.21576593 
+# property_type_nameOne-to-four family dwelling (other than manufactured housing) 
+#                                                                      2.24792941 
+#                                                       loan_type_nameFHA-insured 
+#                                                                     -0.22469512 
+#                                                loan_type_nameFSA/RHS-guaranteed 
+#                                                                      0.20307120 
+#                                                     loan_type_nameVA-guaranteed 
+#                                                                     -0.23131807 
+#                                                  loan_purpose_nameHome purchase 
+#                                                                      2.67635323 
+#                                                    loan_purpose_nameRefinancing 
+#                                                                     -1.58336215 
+#                                           lien_status_nameNot secured by a lien 
+#                                                                     -2.09831321 
+#                                         lien_status_nameSecured by a first lien 
+#                                                                     -0.03483637 
+#                                   lien_status_nameSecured by a subordinate lien 
+#                                                                     -0.25791872 
+#                                                          applicant_sex_nameMale 
+#                                                                      0.29616826 
+#                                                      applicant_race_name_1Asian 
+#                                                                      0.27731421 
+#                                  applicant_race_name_1Black or African American 
+#                                                                     -1.27631996 
+#                  applicant_race_name_1Native Hawaiian or Other Pacific Islander 
+#                                                                     -0.10005006 
+#                                                      applicant_race_name_1White 
+#                                                                      1.16880270 
+#                                  applicant_ethnicity_nameNot Hispanic or Latino 
+#                                                                      0.14280070
+```
+
+# How does the variance of accuracy and coefficient values change with different epsilon?
+
+Variance decreases as epsilon increases.
+
+```{r echo=FALSE}
+many_eps$row <- rep(seq(1, 100), length(unique(many_eps$eps))) # add row numbers to match eps
+
+ggplot(many_eps, aes(x=row, y = CI)) + 
+  geom_point() + 
+  theme_bw() + 
+  facet_wrap(. ~ eps) + 
+  geom_hline(data = data.frame(
+    eps = unique(many_eps$eps),
+    z = (many_eps %>% group_by(eps) %>% summarise(mean = mean(CI)))$mean
+  ), aes(yintercept = z), color = "red") +
+  labs(title = "CI has less variation with higher eps", subtitle = "100 runs for each eps, 10k rows")
+ggplot(many_eps, aes(x=row, y = Accuracy)) + 
+  geom_point() + 
+  theme_bw()+ 
+  facet_wrap(. ~ eps) + 
+  geom_hline(data = data.frame(
+    eps = unique(many_eps$eps),
+    z = (many_eps %>% group_by(eps) %>% summarise(mean = mean(Accuracy)))$mean
+  ), aes(yintercept = z), color = "red") +
+  labs(title = "Accuracy has less variation with higher eps", subtitle = "100 runs for each eps, 10k rows")
+ggplot(many_eps, aes(x=row, y = applicant_income_000s)) + 
+  geom_point() + 
+  theme_bw() + 
+  facet_wrap(. ~ eps) + 
+  geom_hline(data = data.frame(
+    eps = unique(many_eps$eps),
+    z = (many_eps %>% group_by(eps) %>% summarise(mean = mean(applicant_income_000s)))$mean
+  ), aes(yintercept = z), color = "red") +
+  labs(title = "Coefficient variation decreases for higher eps", subtitle = "100 runs for each eps, 10k rows")
+```
+
+# How do the confusion matrices differ for different epsilon?
+
+There are less false negatives and more false positives as epsilon increases.
+
+```{r echo=FALSE}
+# Some fairness stuff
+base_idx <- (which(colnames(many_eps) == "TrueN")) # since we know the cm values are all at the end
+base_idx <- base_idx:(base_idx + 3) # since the cm values come in groups of 4
+n_groups <- length(unique(many_eps$eps)) # number of unique eps values
+
+# To create dataframe for plotting
+true <- rep(factor(c(0, 0, 1, 1)), n_groups)
+predicted <- rep(factor(c(0, 1, 0, 1)), n_groups)
+summ_cm <- data.frame(true, predicted, 
+                   eps = rep(unique(many_eps$eps), each = 4))
+
+# Get base CM
+summ_cm <- convert_one(many_eps, base_idx, summ_cm)
+
+# Creating dataframes for plotting
+for(i in seq(4, 24, 4)) {
+  summ_cm <- convert_one(many_eps, base_idx + i, summ_cm)
+}
+
+plot_cm(summ_cm, "ueN", use_facet=T, facet="eps", title = "Overall (Avg)")
+
+plot_cm(summ_cm, "protapplicant_race_name_1", use_facet=T, facet="eps", title = "Protected Race (Avg)")
+plot_cm(summ_cm, "nprotapplicant_race_name_1", use_facet=T, facet="eps", title = "Not Protected Race (Avg)")
+
+eps_1 <- summ_cm %>% filter(eps == 1)
+guess_1 <- eps_1 %>% filter(predicted == 1)
+
+prob_race_p <- sum(guess_1$protapplicant_race_name_1) / sum(eps_1$protapplicant_race_name_1)
+prob_race_np <- sum(guess_1$nprotapplicant_race_name_1) / sum(eps_1$nprotapplicant_race_name_1)
+prob_ethn_p <- sum(guess_1$protapplicant_ethnicity_name) / sum(eps_1$protapplicant_ethnicity_name)
+prob_ethn_np <- sum(guess_1$nprotapplicant_ethnicity_name) / sum(eps_1$nprotapplicant_ethnicity_name)
+prob_sex_p <- sum(guess_1$protapplicant_sex_name) / sum(eps_1$protapplicant_sex_name)
+prob_sex_np <- sum(guess_1$nprotapplicant_sex_name) / sum(eps_1$nprotapplicant_sex_name)
+```
+
+With eps=1, and DI is calculated as Pr(f(y) = 1 | protected) / Pr(f(y) = 1 | not protected)
+
+DI for race = `r prob_race_p/prob_race_np`
+
+DI for ethnicity = `r prob_ethn_p/prob_ethn_np`
+
+DI for sex = `r prob_sex_p/prob_sex_np`
+
+<!-- # What does the distribution of Accuracy look like for different epsilon? -->
+
+```{r eval=FALSE, include=FALSE}
+ggplot(many_eps %>% filter(eps < 0.1), aes(x = Accuracy)) + 
+  geom_histogram() + 
+  theme_bw() + 
+  facet_wrap(. ~ eps) + 
+  labs(title = "Histogram of Accuracy") + 
+  coord_fixed()
+ggplot(many_eps %>% filter(eps >= 0.1 & eps <= 10), aes(x = Accuracy)) + 
+  geom_histogram() + 
+  theme_bw() + 
+  facet_wrap(. ~ eps) + 
+  labs(title = "Histogram of Accuracy") + 
+  coord_fixed()
+ggplot(many_eps %>% filter(eps > 10), aes(x = Accuracy)) + 
+  geom_histogram() + 
+  theme_bw() + 
+  facet_wrap(. ~ eps) + 
+  labs(title = "Histogram of Accuracy")
+```
+
+
+
+
+
+
+
+
+

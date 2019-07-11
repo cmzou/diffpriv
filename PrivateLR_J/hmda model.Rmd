@@ -27,6 +27,8 @@ data <- read_csv("../data/hmda_nc_encode.csv")
 if("X1" %in% names(data)) {
   data$X1 <- NULL
 }
+
+source("./functions.R")
 ```
 
 ```{r}
@@ -297,25 +299,6 @@ fnp <- lapply(1:length(attribute), function(i) {
   return(ret)
 })
 one_data <- cbind(one_data, t(unlist(fnp)))
-```
-
-```{r}
-# Function to plot confusion matrix
-# true: column of 0s and 1s to use as x-axis
-# predicted: column of 0s and 1s to use as y-axis
-#   this is so that when plotted, the values at coordinates (true, predicted) represent values in the cm
-# col: the column name of the values to go in each box
-plot_cm <- function(data, col, true="true", predicted="predicted", title = NULL) {
-  # Formatting digits
-  data[, col] <- as.numeric(format(data[, col], digits=3))
-  
-  ggplot(data =  data, mapping = aes_string(x = true, y = predicted)) + 
-    geom_tile(aes_string(fill = col), colour = "white") +
-    geom_text(aes_string(label = col), vjust = 1) +
-    scale_fill_gradient(low = "white", high = "red") +
-    theme_bw() + theme(legend.position = "none")+
-    labs(title = title)
-}
 ```
 
 ```{r}
