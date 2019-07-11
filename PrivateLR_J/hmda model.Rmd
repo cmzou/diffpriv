@@ -1,0 +1,597 @@
+---
+title: "hmda nonprivate"
+author: "Justina Zou"
+date: "July 9, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preprocessing
+
+```{r}
+library(PrivateLR)
+library(dplyr)
+library(readr)
+library(caret)
+library(ggplot2)
+library(cowplot)
+
+set.seed(2019)
+
+data <- read_csv("../data/hmda_nc_encode.csv")
+# base_accpt = 0.8117208
+
+if("X1" %in% names(data)) {
+  data$X1 <- NULL
+}
+```
+
+```{r}
+### CHANGE VARS HERE ###
+# For K-fold cross validation
+k <- 5
+
+# Remove NA? Do not set to FALSE, it hasn't been implemented.
+remove_na <- TRUE
+
+# Variables to use in model
+predic <- "loan_status"
+explan <- colnames(data)[!(colnames(data) %in% c(predic))] 
+
+# Categorical variables
+need_factor <- FALSE # set to TRUE if using unencoded data
+to_factor <- c(predic)
+
+# For fairness - make sure indices match!
+attribute <- c("applicant_race_name_1_Black_or_African_American", "applicant_race_name_1_White", "applicant_ethnicity_name_Hispanic_or_Latino", "applicant_sex_name_Female")
+protected <- c(1, 0, 1, 1)
+not_protected <- c(0, 1, 0, 0) # notice that this is not the same as "White" for example, when the data is encoded
+########################
+```
+
+```{r}
+new_d <- data
+  
+# Filter down columns
+new_d <- new_d %>% 
+    dplyr::select(explan, predic) 
+
+# Remove NA
+if(remove_na) {
+  new_d <- new_d[complete.cases(new_d), ]
+}
+
+# Transform data to factor -- don't do this with encoded data!
+if(length(to_factor) > 0) {
+  new_d[to_factor] <- lapply(new_d[to_factor], as.factor)
+}
+
+# Split into test and train - 80/20
+n_samps <- floor(0.8 * nrow(new_d))
+idx <- sample(seq_len(nrow(new_d)), size = n_samps)
+train <- new_d[idx, ]
+test <- new_d[-idx, ]
+```
+
+```{r}
+f_base <- as.formula(
+  paste(predic, 
+        paste(explan, collapse = " + "), 
+        sep = " ~ "))
+```
+
+# Initializing cross validation
+
+```{r}
+lr_init <- list(type="Classification",
+                 library="PrivateLR",
+                loop = NULL)
+lr_init$parameters <- data.frame(
+  parameter = c("do.scale", "threshold"),
+  class = c("logical", "character"),
+  label = c("do.scale", "threshold")
+)
+
+lr_fit <- function(x, y, wts, param, lev, last, weights, classProbs, ...) {
+  
+  d <- as.data.frame(x)
+  d$y <- y
+  
+  # Spaces in column names breaks stuff
+  colnames(d)<-make.names(colnames(d),unique = TRUE)
+  
+  m <- PrivateLR::dplr(
+    y ~ ., data=d,
+    eps = 0,
+    do.scale = param$do.scale,
+    threshold = param$threshold,
+    op = F,
+    ...
+  )
+  
+  # write coefficients etc to file
+  coef <- m$coefficients
+  df <- data.frame(t(coef))
+  df$CIndex <- m$CIndex
+  df <- cbind(df, param)
+  write_csv(df, "test.csv", append=TRUE)
+  
+  return(m)
+}
+lr_init$fit <- lr_fit
+
+lr_pred <- function(modelFit, newdata, preProc=NULL, submodels=NULL) {
+  PrivateLR::predict.dplr(object = modelFit, data = newdata, type = "class")
+}
+lr_init$predict <- lr_pred
+
+lr_init$prob <- function(modelFit, newdata, preProc=NULL, submodels=NULL) {
+  PrivateLR::predict.dplr(modelFit, newdata)
+}
+# Tuning parameters -- here instead of above to press run less often
+lr_grid <- function(x, y, len = NULL, search = "grid") {
+  # Create df of all possible combinations
+  ret <- expand.grid(
+    threshold = c("0.5", "youden", "topleft"),
+    do.scale = c(T,F),
+    stringsAsFactors = FALSE)
+  
+  return(ret)
+}
+lr_init$grid <- lr_grid
+
+# Define new summary function
+summ <- function(data, lev = NULL, model = NULL) {
+  cm <- confusionMatrix(data$pred, data$obs)
+  ret <- c(cm$overall[1:2], 
+           cm$byClass[1:6], 
+           cm$table)
+  names(ret) <- c(names(ret)[1:(length(ret)-4)], "TrueN", "FalseP", "FalseN", "TrueP")
+  return(ret)
+}
+```
+
+# Run k-fold cross validation
+
+```{r}
+fitControl <- trainControl(method = "cv",
+                           p=0.8,
+                           number = k, # what fold?
+                           summaryFunction = summ
+)
+
+# Run in cluster! It takes ~1 hr to run each train()
+# These values were created using hmda_nc_noencode.csv. see the deprecated folder.
+
+# # No interactions vars
+# Laplacian <- train(f_base, data = new_d, 
+#                    method = lr_init,
+#                    trControl = fitControl)
+# results_base <- Laplacian$results
+#   threshold do.scale  Accuracy      Kappa Sensitivity Specificity Pos Pred Value
+# 1       0.5    FALSE 0.8320536 0.19546686  0.15811497   0.9800622      0.6354646
+# 3   topleft    FALSE 0.7383924 0.32602338  0.67649696   0.7519857      0.3747154
+# 5    youden    FALSE 0.7383924 0.32602338  0.67649696   0.7519857      0.3747154
+# 2       0.5     TRUE 0.8224266 0.02629181  0.01695726   0.9993217      0.8690049
+# 4   topleft     TRUE 0.7184997 0.29849868  0.67811099   0.7273698      0.3534851
+# 6    youden     TRUE 0.7184997 0.29849868  0.67811099   0.7273698      0.3534851
+#   Neg Pred Value Precision     Recall  TrueN FalseP  FalseN   TrueP   AccuracySD
+# 1      0.8412876 0.6354646 0.15811497 1587.0 8450.0   911.2 44791.0 0.0011627934
+# 3      0.9136930 0.3747154 0.67649696 6790.0 3247.0 11334.8 34367.4 0.0052642174
+# 5      0.9136930 0.3747154 0.67649696 6790.0 3247.0 11334.8 34367.4 0.0052642174
+# 2      0.8223432 0.8690049 0.01695726  170.2 9866.8    31.0 45671.2 0.0009558821
+# 4      0.9114722 0.3534851 0.67811099 6806.2 3230.8 12459.8 33242.4 0.0086012689
+# 6      0.9114722 0.3534851 0.67811099 6806.2 3230.8 12459.8 33242.4 0.0086012689
+#       KappaSD SensitivitySD SpecificitySD Pos Pred ValueSD Neg Pred ValueSD
+# 1 0.004009042    0.00188643  0.0011853796      0.015229460     0.0003982244
+# 3 0.005493247    0.01124930  0.0083536464      0.005020386     0.0020555946
+# 5 0.005493247    0.01124930  0.0083536464      0.005020386     0.0020555946
+# 2 0.011865593    0.00809360  0.0006250438      0.063163836     0.0011141484
+# 4 0.006429859    0.01873472  0.0142251938      0.006682680     0.0032397834
+# 6 0.006429859    0.01873472  0.0142251938      0.006682680     0.0032397834
+#   PrecisionSD   RecallSD   TrueNSD  FalsePSD  FalseNSD   TruePSD
+# 1 0.015229460 0.00188643  18.93410  18.93410  54.16826  54.49312
+# 3 0.005020386 0.01124930 112.90926 112.90926 381.78292 381.76472
+# 5 0.005020386 0.01124930 112.90926 112.90926 381.78292 381.76472
+# 2 0.063163836 0.00809360  81.23546  81.23546  28.56571  28.64786
+# 4 0.006682680 0.01873472 188.04042 188.04042 650.15898 650.01946
+# 6 0.006682680 0.01873472 188.04042 188.04042 650.15898 650.01946
+
+
+
+# # With interaction vars
+# Gaussian <- train(f_interact, data = new_d, 
+#                    method = lr_init,
+#                    trControl = fitControl)
+# results_interact <- Gaussian$results
+#   threshold do.scale  Accuracy     Kappa Sensitivity Specificity Pos Pred Value
+# 1       0.5    FALSE 0.8379972 0.2583882   0.2167408   0.9744254      0.6504661
+# 3   topleft    FALSE 0.7374756 0.3273766   0.6830978   0.7494170      0.3746933
+# 5    youden    FALSE 0.7374756 0.3273766   0.6830978   0.7494170      0.3746933
+# 2       0.5     TRUE 0.8199407 0.0000000   0.0000000   1.0000000            NaN
+# 4   topleft     TRUE 0.7299739 0.3103065   0.6673373   0.7437289      0.3641946
+# 6    youden     TRUE 0.7299739 0.3103065   0.6673373   0.7437289      0.3641946
+#   Neg Pred Value Precision    Recall  TrueN  FalseP FalseN   TrueP   AccuracySD
+# 1      0.8499659 0.6504661 0.2167408 2175.6  7862.2   1169 44540.4 7.079642e-04
+# 3      0.9150579 0.3746933 0.6830978 6856.8  3181.0  11454 34255.4 8.083518e-03
+# 5      0.9150579 0.3746933 0.6830978 6856.8  3181.0  11454 34255.4 8.083518e-03
+# 2      0.8199407       NaN 0.0000000    0.0 10037.8      0 45709.4 6.074198e-06
+# 4      0.9106023 0.3641946 0.6673373 6698.6  3339.2  11714 33995.4 1.092464e-02
+# 6      0.9106023 0.3641946 0.6673373 6698.6  3339.2  11714 33995.4 1.092464e-02
+#       KappaSD SensitivitySD SpecificitySD Pos Pred ValueSD Neg Pred ValueSD
+# 1 0.004803810   0.004164539  0.0004683474      0.004784940     6.603134e-04
+# 3 0.006621477   0.013000388  0.0126996702      0.007298235     1.904555e-03
+# 5 0.006621477   0.013000388  0.0126996702      0.007298235     1.904555e-03
+# 2 0.000000000   0.000000000  0.0000000000               NA     6.074198e-06
+# 4 0.009149903   0.016140924  0.0168462860      0.009688347     2.147413e-03
+# 6 0.009149903   0.016140924  0.0168462860      0.009688347     2.147413e-03
+#   PrecisionSD    RecallSD   TrueNSD    FalsePSD  FalseNSD     TruePSD
+# 1 0.004784940 0.004164539  41.75284  41.9845210  21.41261  21.2320512
+# 3 0.007298235 0.013000388 130.58024 130.4588058 580.52950 580.4156269
+# 5 0.007298235 0.013000388 130.58024 130.4588058 580.52950 580.4156269
+# 2          NA 0.000000000   0.00000   0.4472136   0.00000   0.5477226
+# 4 0.009688347 0.016140924 162.12434 161.9697503 770.04773 770.0235711
+# 6 0.009688347 0.016140924 162.12434 161.9697503 770.04773 770.0235711
+```
+
+# Finally, once we've found a good model,
+
+```{r}
+# Tuning parameters -- here instead of above to press run less often
+lr_grid <- function(x, y, len = NULL, search = "grid") {
+  # Create df of all possible combinations
+  ret <- expand.grid(
+    threshold = c("0.5"),
+    do.scale = c(T),
+    stringsAsFactors = FALSE)
+
+  return(ret)
+}
+lr_init$grid <- lr_grid
+Laplacian <- train(f_base, data = new_d,
+                   method = lr_init,
+                   trControl = fitControl)
+
+best_model <- Laplacian$finalModel
+
+# Add in confusion matrix stuff
+predictions <- best_model$pred(test, type = "class")
+test_np <- test # want to preserve original df
+test_np$predicted <- predictions
+
+if(!is.factor(test_np[[predic]])) {
+  test_np$predicted <- as.factor(test_np$predicted)
+  test_np[[predic]] <- as.factor(test_np[[predic]])
+}
+
+cm <- confusionMatrix(test_np$predicted, test_np[[predic]]) 
+one_data <- c(best_model$coefficients, best_model$CIndex, cm$overall["Accuracy"], cm$table)
+one_data <- data.frame(t(one_data))
+names(one_data) <- c(names(one_data)[1:(length(one_data)-4)], "TrueN", "FalseP", "FalseN", "TrueP")
+
+Laplacian
+best_model
+cm
+```
+
+# Plotting to examine fairness
+
+```{r}
+# Calculate fairness for each attribute
+fnp <- lapply(1:length(attribute), function(i) {
+  only_prot <- test_np %>% 
+    filter_(paste0(attribute[i], "==", protected[i]))
+  not_prot <- test_np %>% 
+    filter_(paste0(attribute[i], "==", not_protected[i]))
+  
+  cm_prot <- confusionMatrix(only_prot$predicted, only_prot[[predic]])
+  cm_nprot <- confusionMatrix(not_prot$predicted, not_prot[[predic]])
+  
+  ret <- c(cm_prot$table, cm_nprot$table)
+  p <- paste0(c("TN", "FP", "FN", "TP"), sep=paste0("prot", attribute[i]))
+  np <- paste0(c("TN", "FP", "FN", "TP"), sep=paste0("nprot", attribute[i]))
+  names(ret) <- c(p,np)
+  return(ret)
+})
+one_data <- cbind(one_data, t(unlist(fnp)))
+```
+
+```{r}
+# Function to plot confusion matrix
+# true: column of 0s and 1s to use as x-axis
+# predicted: column of 0s and 1s to use as y-axis
+#   this is so that when plotted, the values at coordinates (true, predicted) represent values in the cm
+# col: the column name of the values to go in each box
+plot_cm <- function(data, col, true="true", predicted="predicted", title = NULL) {
+  # Formatting digits
+  data[, col] <- as.numeric(format(data[, col], digits=3))
+  
+  ggplot(data =  data, mapping = aes_string(x = true, y = predicted)) + 
+    geom_tile(aes_string(fill = col), colour = "white") +
+    geom_text(aes_string(label = col), vjust = 1) +
+    scale_fill_gradient(low = "white", high = "red") +
+    theme_bw() + theme(legend.position = "none")+
+    labs(title = title)
+}
+```
+
+```{r}
+# this section is a mess!!!! beware!!!!!
+
+# Modifying df for plotting
+base_idx <- (which(colnames(one_data) == "TrueN")) # since we know the cm values are all at the end
+base_idx <- base_idx:(base_idx + 3) # since the cm values come in groups of 4
+
+# We want the format in 
+# true, predicted, result
+# 0     0          num_TN
+# 0     1          num_FP
+# 1     0          num_FN
+# 1     1          num_TP
+# So that true is the x axis and predicted is the y axis.
+# ggplot uses this easier
+to_plot <- data.frame(base = t(one_data[, base_idx]), 
+                   true = factor(c(0, 0, 1, 1)),
+                   predicted = factor(c(0, 1, 0, 1)))
+to_plot <- to_plot %>% 
+  mutate(base = base / sum(base))
+
+# one_data is 1 by num_useful_stuff
+# So here, we find the useful stuff we want to plot,
+# transpose it, and append it to to_plot
+for(i in 1:length(attribute)) {
+  to_plot[, paste0(attribute[i], "prot")] <- c(t(one_data[, base_idx+(4 * (2*i-1))])) # since this is how the data was created
+  to_plot[, paste0(attribute[i], "prot")] <- to_plot[, paste0(attribute[i], "prot")] / # to get percentages
+    sum(to_plot[, paste0(attribute[i], "prot")])
+  
+  to_plot[, paste0(attribute[i], "nprot")] <- c(t(one_data[, base_idx+(4 * (2*i))]))
+  to_plot[, paste0(attribute[i], "nprot")] <- to_plot[, paste0(attribute[i], "nprot")] / 
+    sum(to_plot[, paste0(attribute[i], "nprot")])
+}
+
+print(paste0("Accuracy = ", one_data$Accuracy))
+print(paste0("CI = ", one_data$CI))
+
+plot_cm(to_plot, "base", title = "CM (overall)")
+
+p1 <- plot_cm(to_plot, "applicant_race_name_1_Black_or_African_Americanprot", title = "CM (Protected Race)")
+p2 <- plot_cm(to_plot, "applicant_race_name_1_Whitenprot", title = "CM (Not Protected Race)")
+
+p3 <- plot_cm(to_plot, "applicant_ethnicity_name_Hispanic_or_Latinoprot", title = "CM (Protected Ethnicity)")
+p4 <- plot_cm(to_plot, "applicant_ethnicity_name_Hispanic_or_Latinonprot", title = "CM (Not Protected Ethnicity)")
+
+plot_grid(p1,p2,p3,p4)
+
+predictedrace_1 <- sum((to_plot %>% filter(predicted==1))$applicant_race_name_1_Black_or_African_Americanprot)
+predictedrace_0 <- sum((to_plot %>% filter(predicted==1))$applicant_race_name_1_Whitenprot)
+race_di <- predictedrace_1 / predictedrace_0
+print(paste0("race di = ",race_di))
+
+predictedethni_1 <- sum((to_plot %>% filter(predicted==1))$applicant_ethnicity_name_Hispanic_or_Latinoprot)
+predictedethni_0 <- sum((to_plot %>% filter(predicted==1))$applicant_ethnicity_name_Hispanic_or_Latinonprot)
+ethni_di <- predictedethni_1 / predictedethni_0
+print(paste0("ethni di = ",ethni_di))
+```
+
+# Seeing performance on balanced datasets
+
+Run this Rmd and then run "hmda balance.Rmd" to get datasets
+
+```{r}
+make_model <- function(train, test) {
+  best_model <- dplr(f_base, train, eps=0, op=F, do.scale = T, threshold="0.5")
+  
+  # Add in confusion matrix stuff
+  predictions <- best_model$pred(test, type = "class")
+  test_np <- test # want to preserve original df
+  test_np$predicted <- predictions
+  
+  cm <- confusionMatrix(test_np$predicted, test_np$loan_status)
+  one_data <- c(best_model$coefficients, best_model$CIndex, cm$overall["Accuracy"], cm$table)
+  one_data <- data.frame(t(one_data))
+  names(one_data) <- c(names(one_data)[1:(length(one_data)-4)], "TrueN", "FalseP", "FalseN", "TrueP")
+  
+  base_idx <- (ncol(one_data)-3):(ncol(one_data))
+  
+  # Calculate fairness for each attribute
+  fnp <- lapply(1:length(attribute), function(i) {
+    only_prot <- test_np %>% 
+      filter_(paste0(attribute[i], "==", protected[i]))
+    not_prot <- test_np %>% 
+      filter_(paste0(attribute[i], "==", not_protected[i]))
+    
+    cm_prot <- confusionMatrix(only_prot$predicted, only_prot$loan_status)
+    cm_nprot <- confusionMatrix(not_prot$predicted, not_prot$loan_status)
+    
+    ret <- c(cm_prot$table, cm_nprot$table)
+    p <- paste0(c("TN", "FP", "FN", "TP"), sep=paste0("prot", attribute[i]))
+    np <- paste0(c("TN", "FP", "FN", "TP"), sep=paste0("nprot", attribute[i]))
+    names(ret) <- c(p,np)
+    return(ret)
+  })
+  one_data <- cbind(one_data, t(unlist(fnp)))
+  
+  # Modifying df for plotting
+  to_plot <- data.frame(base = t(one_data[, base_idx]), 
+                        true = factor(c(0, 0, 1, 1)),
+                        predicted = factor(c(0, 1, 0, 1)))
+  to_plot <- to_plot %>% 
+    mutate(base = base / sum(base))
+  for(i in 1:length(attribute)) {
+    to_plot[, paste0(attribute[i], "prot")] <- c(t(one_data[, base_idx+(4 * (2*i-1))]))
+    to_plot[, paste0(attribute[i], "prot")] <- to_plot[, paste0(attribute[i], "prot")] / 
+      sum(to_plot[, paste0(attribute[i], "prot")])
+    
+    to_plot[, paste0(attribute[i], "nprot")] <- c(t(one_data[, base_idx+(4 * (2*i))]))
+    to_plot[, paste0(attribute[i], "nprot")] <- to_plot[, paste0(attribute[i], "nprot")] / 
+      sum(to_plot[, paste0(attribute[i], "nprot")])
+  }
+  
+  return(list(best_model, cm, to_plot))
+}
+```
+
+```{r}
+# Shuffle datasets since they're not random
+half_ad <- half_ad[sample(nrow(half_ad), nrow(half_ad)), ]
+half_wb <- half_wb[sample(nrow(half_wb), nrow(half_wb)), ]
+half_hn <- half_hn[sample(nrow(half_hn), nrow(half_hn)), ]
+# # Split into test and train - 80/20
+# n_samps <- floor(0.8 * nrow(half_ad)) # all going to have the same nrow, so we save time
+# idx <- sample(seq_len(nrow(half_ad)), size = n_samps)
+# train_ad <- half_ad[idx, ]
+# test_ad <- half_ad[-idx, ]
+# 
+# train_wb <- half_wb[idx, ]
+# test_wb <- half_wb[-idx, ]
+# 
+# train_hn <- half_hn[idx, ]
+# test_hn <- half_hn[-idx, ]
+
+# # Refactor train_wb and test_wb so that it's lack of factors doesn't make R mad
+# train_wb$applicant_race_name_1 <- factor(train_wb$applicant_race_name_1)
+# test_wb$applicant_race_name_1 <- factor(test_wb$applicant_race_name_1)
+```
+
+```{r}
+# Manual k-fold because we cant get cm for different classes normally
+folds <- cut(seq(1,nrow(half_ad)),breaks=k,labels=FALSE) 
+res <- lapply(1:k, function(i) {
+  #Segement data by fold using the which() function 
+    idx <- which(folds==i,arr.ind=TRUE)
+    train_ad <- half_ad[idx, ]
+    test_ad <- half_ad[-idx, ]
+    
+    train_wb <- half_wb[idx, ]
+    test_wb <- half_wb[-idx, ]
+    
+    train_hn <- half_hn[idx, ]
+    test_hn <- half_hn[-idx, ]
+    
+    # Refactor train_wb and test_wb so that it's lack of factors doesn't make R mad
+    train_wb$applicant_race_name_1 <- factor(train_wb$applicant_race_name_1)
+    test_wb$applicant_race_name_1 <- factor(test_wb$applicant_race_name_1)
+    
+    ad_m <- make_model(train_ad, test_ad)
+    wb_m <- make_model(train_wb, test_wb)
+    hn_m <- make_model(train_hn, test_hn)
+
+    ret <- data.frame(CIndex = ad_m[[1]]$CIndex, Accuracy = ad_m[[2]]$overall["Accuracy"], ad_m[[3]], model = "ad")
+    ret <- rbind(ret, data.frame(CIndex = wb_m[[1]]$CIndex, Accuracy = wb_m[[2]]$overall["Accuracy"], wb_m[[3]], model = "wb"))
+    ret <- rbind(ret, data.frame(CIndex = hn_m[[1]]$CIndex, Accuracy = hn_m[[2]]$overall["Accuracy"], hn_m[[3]], model = "hn"))
+})
+
+res_df <- do.call(rbind, res)
+
+filter_model <- function(df, model) {
+  d <- df %>% filter(model == !!model)
+  d_cts <- d[, -which(names(d) %in% c("CIndex", "Accuracy"))]
+  d_cts <- aggregate( d_cts[, -which(names(d_cts) %in% c("true", "predicted", "model"))], # columns to use FUN on
+                         d_cts[, which(names(d_cts) %in% c("true", "predicted"))], # group by
+                         FUN = mean)
+  d <- data.frame(CIndex = mean(d$CIndex), Accuracy = mean(ad_m$Accuracy))
+  return(list(d_cts, d))
+}
+
+ad_fair <- filter_model(res_df, "ad")
+wb_fair <- filter_model(res_df, "wb")
+hn_fair <- filter_model(res_df, "hn")
+```
+
+# Creating models
+
+```{r}
+# # Note that there is NO k-fold because I haven't figured out 
+# # how to extract classes' confusion matrices!
+# ad_m <- make_model(train_ad, test_ad)
+# wb_m <- make_model(train_wb, test_wb)
+# hn_m <- make_model(train_hn, test_hn)
+```
+
+# Model with half accept, half deny
+
+```{r}
+print(ad_fair[[2]])
+
+plot_cm(ad_fair[[1]], "base", title = "CM (overall)")
+
+p1 <- plot_cm(ad_fair[[1]], "applicant_race_name_1prot", title = "CM (Protected Race)")
+p2 <- plot_cm(ad_fair[[1]], "applicant_race_name_1nprot", title = "CM (Not Protected Race)")
+
+p3 <- plot_cm(ad_fair[[1]], "applicant_ethnicity_nameprot", title = "CM (Protected Ethnicity)")
+p4 <- plot_cm(ad_fair[[1]], "applicant_ethnicity_namenprot", title = "CM (Not Protected Ethnicity)")
+
+plot_grid(p1,p2,p3,p4)
+
+# Disparate imapct
+predictedrace_1 <- sum((ad_fair[[1]] %>% filter(predicted==1))$applicant_race_name_1prot)
+predictedrace_0 <- sum((ad_fair[[1]] %>% filter(predicted==1))$applicant_race_name_1nprot)
+race_di <- predictedrace_1 / predictedrace_0
+print(paste0("race di = ",race_di))
+
+predictedethni_1 <- sum((ad_fair[[1]] %>% filter(predicted==1))$applicant_ethnicity_nameprot)
+predictedethni_0 <- sum((ad_fair[[1]] %>% filter(predicted==1))$applicant_ethnicity_namenprot)
+ethni_di <- predictedethni_1 / predictedethni_0
+print(paste0("ethni di = ",ethni_di))
+```
+
+# Model with half black, half white
+
+```{r}
+print(wb_fair[[2]])
+
+plot_cm(wb_fair[[1]], "base", title = "CM (overall)")
+
+p1 <- plot_cm(wb_fair[[1]], "applicant_race_name_1prot", title = "CM (Protected Race)")
+p2 <- plot_cm(wb_fair[[1]], "applicant_race_name_1nprot", title = "CM (Not Protected Race)")
+
+p3 <- plot_cm(wb_fair[[1]], "applicant_ethnicity_nameprot", title = "CM (Protected Ethnicity)")
+p4 <- plot_cm(wb_fair[[1]], "applicant_ethnicity_namenprot", title = "CM (Not Protected Ethnicity)")
+
+plot_grid(p1,p2,p3,p4)
+
+# Disparate imapct
+predictedrace_1 <- sum((wb_fair[[1]] %>% filter(predicted==1))$applicant_race_name_1prot)
+predictedrace_0 <- sum((wb_fair[[1]] %>% filter(predicted==1))$applicant_race_name_1nprot)
+race_di <- predictedrace_1 / predictedrace_0
+print(paste0("race di = ",race_di))
+
+predictedethni_1 <- sum((wb_fair[[1]] %>% filter(predicted==1))$applicant_ethnicity_nameprot)
+predictedethni_0 <- sum((wb_fair[[1]] %>% filter(predicted==1))$applicant_ethnicity_namenprot)
+ethni_di <- predictedethni_1 / predictedethni_0
+print(paste0("ethni di = ",ethni_di))
+```
+
+# Model with half hispanic, half not hispanic
+
+```{r}
+print(hn_fair[[2]])
+
+plot_cm(hn_fair[[1]], "base", title = "CM (overall)")
+
+p1 <- plot_cm(hn_fair[[1]], "applicant_race_name_1prot", title = "CM (Protected Race)")
+p2 <- plot_cm(hn_fair[[1]], "applicant_race_name_1nprot", title = "CM (Not Protected Race)")
+
+p3 <- plot_cm(hn_fair[[1]], "applicant_ethnicity_nameprot", title = "CM (Protected Ethnicity)")
+p4 <- plot_cm(hn_fair[[1]], "applicant_ethnicity_namenprot", title = "CM (Not Protected Ethnicity)")
+
+plot_grid(p1,p2,p3,p4)
+
+# Disparate imapct
+predictedrace_1 <- sum((hn_fair[[1]] %>% filter(predicted==1))$applicant_race_name_1prot)
+predictedrace_0 <- sum((hn_fair[[1]] %>% filter(predicted==1))$applicant_race_name_1nprot)
+race_di <- predictedrace_1 / predictedrace_0
+print(paste0("race di = ",race_di))
+
+predictedethni_1 <- sum((hn_fair[[1]] %>% filter(predicted==1))$applicant_ethnicity_nameprot)
+predictedethni_0 <- sum((hn_fair[[1]] %>% filter(predicted==1))$applicant_ethnicity_namenprot)
+ethni_di <- predictedethni_1 / predictedethni_0
+print(paste0("ethni di = ",ethni_di))
+```
+
+
+
+
