@@ -24,7 +24,9 @@ Removed rows with missing data.
 
 # Future plans
 
-1. Average model with more runs
+1. Rerun for all eps values (base 2 instead of 10)
+2. Standardize output/data
+3. More data
 
 # Files
 
@@ -39,4 +41,4 @@ Removed rows with missing data.
 2. `hmda_privatelr_script.R`: runs k-fold cross validation. to be used on command line
 3. `functions.R`: useful functions for plotting, data filtering, etc. 
 
-Last updated: 7/11/2019
+Last updated: 7/12/2019

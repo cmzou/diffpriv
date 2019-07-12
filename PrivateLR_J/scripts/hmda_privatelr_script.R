@@ -99,7 +99,7 @@ init_cv <- function() {
   # Tuning parameters
   lr_grid <- function(x, y, len = NULL, search = "grid") {
     # Create df of all possible combinations
-    ret <- expand.grid(eps = c(0.00001, 0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000), 
+    ret <- expand.grid(eps = 2^seq(-8,4), 
                        op = c(T,F), 
                        threshold = c("0.5", "youden", "topleft"),
                        do.scale = c(T), stringsAsFactors = FALSE)
