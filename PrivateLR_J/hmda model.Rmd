@@ -14,6 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(PrivateLR)
 library(dplyr)
+library(data.table)
 library(readr)
 library(caret)
 library(ggplot2)
@@ -21,14 +22,14 @@ library(cowplot)
 
 set.seed(2019)
 
-data <- read_csv("../data/hmda_nc_encode.csv")
+data <- fread("../../data/hmda_nc_noencode.csv")
 # base_accpt = 0.8117208
 
 if("X1" %in% names(data)) {
   data$X1 <- NULL
 }
 
-source("./functions.R")
+source("./scripts/functions.R")
 ```
 
 ```{r}
@@ -40,7 +41,7 @@ k <- 5
 remove_na <- TRUE
 
 # Variables to use in model
-predic <- "loan_status"
+predic <- "action_taken_name"
 explan <- colnames(data)[!(colnames(data) %in% c(predic))] 
 
 # Categorical variables
@@ -55,11 +56,10 @@ not_protected <- c(0, 1, 0, 0) # notice that this is not the same as "White" for
 ```
 
 ```{r}
-new_d <- data
+new_d <- sample_n(data, 200000)
   
 # Filter down columns
-new_d <- new_d %>% 
-    dplyr::select(explan, predic) 
+new_d <- new_d[,c(explan, predic), with=FALSE]
 
 # Remove NA
 if(remove_na) {
@@ -68,7 +68,7 @@ if(remove_na) {
 
 # Transform data to factor -- don't do this with encoded data!
 if(length(to_factor) > 0) {
-  new_d[to_factor] <- lapply(new_d[to_factor], as.factor)
+  new_d[, (to_factor) := lapply(.SD, factor), .SDcols = to_factor]
 }
 
 # Split into test and train - 80/20
@@ -88,155 +88,13 @@ f_base <- as.formula(
 # Initializing cross validation
 
 ```{r}
-lr_init <- list(type="Classification",
-                 library="PrivateLR",
-                loop = NULL)
-lr_init$parameters <- data.frame(
-  parameter = c("do.scale", "threshold"),
-  class = c("logical", "character"),
-  label = c("do.scale", "threshold")
-)
+lr_init <- init_cv()
 
-lr_fit <- function(x, y, wts, param, lev, last, weights, classProbs, ...) {
-  
-  d <- as.data.frame(x)
-  d$y <- y
-  
-  # Spaces in column names breaks stuff
-  colnames(d)<-make.names(colnames(d),unique = TRUE)
-  
-  m <- PrivateLR::dplr(
-    y ~ ., data=d,
-    eps = 0,
-    do.scale = param$do.scale,
-    threshold = param$threshold,
-    op = F,
-    ...
-  )
-  
-  # write coefficients etc to file
-  coef <- m$coefficients
-  df <- data.frame(t(coef))
-  df$CIndex <- m$CIndex
-  df <- cbind(df, param)
-  write_csv(df, "test.csv", append=TRUE)
-  
-  return(m)
-}
-lr_init$fit <- lr_fit
-
-lr_pred <- function(modelFit, newdata, preProc=NULL, submodels=NULL) {
-  PrivateLR::predict.dplr(object = modelFit, data = newdata, type = "class")
-}
-lr_init$predict <- lr_pred
-
-lr_init$prob <- function(modelFit, newdata, preProc=NULL, submodels=NULL) {
-  PrivateLR::predict.dplr(modelFit, newdata)
-}
-# Tuning parameters -- here instead of above to press run less often
-lr_grid <- function(x, y, len = NULL, search = "grid") {
-  # Create df of all possible combinations
-  ret <- expand.grid(
-    threshold = c("0.5", "youden", "topleft"),
-    do.scale = c(T,F),
-    stringsAsFactors = FALSE)
-  
-  return(ret)
-}
-lr_init$grid <- lr_grid
-
-# Define new summary function
-summ <- function(data, lev = NULL, model = NULL) {
-  cm <- confusionMatrix(data$pred, data$obs)
-  ret <- c(cm$overall[1:2], 
-           cm$byClass[1:6], 
-           cm$table)
-  names(ret) <- c(names(ret)[1:(length(ret)-4)], "TrueN", "FalseP", "FalseN", "TrueP")
-  return(ret)
-}
-```
-
-# Run k-fold cross validation
-
-```{r}
 fitControl <- trainControl(method = "cv",
                            p=0.8,
                            number = k, # what fold?
                            summaryFunction = summ
 )
-
-# Run in cluster! It takes ~1 hr to run each train()
-# These values were created using hmda_nc_noencode.csv. see the deprecated folder.
-
-# # No interactions vars
-# Laplacian <- train(f_base, data = new_d, 
-#                    method = lr_init,
-#                    trControl = fitControl)
-# results_base <- Laplacian$results
-#   threshold do.scale  Accuracy      Kappa Sensitivity Specificity Pos Pred Value
-# 1       0.5    FALSE 0.8320536 0.19546686  0.15811497   0.9800622      0.6354646
-# 3   topleft    FALSE 0.7383924 0.32602338  0.67649696   0.7519857      0.3747154
-# 5    youden    FALSE 0.7383924 0.32602338  0.67649696   0.7519857      0.3747154
-# 2       0.5     TRUE 0.8224266 0.02629181  0.01695726   0.9993217      0.8690049
-# 4   topleft     TRUE 0.7184997 0.29849868  0.67811099   0.7273698      0.3534851
-# 6    youden     TRUE 0.7184997 0.29849868  0.67811099   0.7273698      0.3534851
-#   Neg Pred Value Precision     Recall  TrueN FalseP  FalseN   TrueP   AccuracySD
-# 1      0.8412876 0.6354646 0.15811497 1587.0 8450.0   911.2 44791.0 0.0011627934
-# 3      0.9136930 0.3747154 0.67649696 6790.0 3247.0 11334.8 34367.4 0.0052642174
-# 5      0.9136930 0.3747154 0.67649696 6790.0 3247.0 11334.8 34367.4 0.0052642174
-# 2      0.8223432 0.8690049 0.01695726  170.2 9866.8    31.0 45671.2 0.0009558821
-# 4      0.9114722 0.3534851 0.67811099 6806.2 3230.8 12459.8 33242.4 0.0086012689
-# 6      0.9114722 0.3534851 0.67811099 6806.2 3230.8 12459.8 33242.4 0.0086012689
-#       KappaSD SensitivitySD SpecificitySD Pos Pred ValueSD Neg Pred ValueSD
-# 1 0.004009042    0.00188643  0.0011853796      0.015229460     0.0003982244
-# 3 0.005493247    0.01124930  0.0083536464      0.005020386     0.0020555946
-# 5 0.005493247    0.01124930  0.0083536464      0.005020386     0.0020555946
-# 2 0.011865593    0.00809360  0.0006250438      0.063163836     0.0011141484
-# 4 0.006429859    0.01873472  0.0142251938      0.006682680     0.0032397834
-# 6 0.006429859    0.01873472  0.0142251938      0.006682680     0.0032397834
-#   PrecisionSD   RecallSD   TrueNSD  FalsePSD  FalseNSD   TruePSD
-# 1 0.015229460 0.00188643  18.93410  18.93410  54.16826  54.49312
-# 3 0.005020386 0.01124930 112.90926 112.90926 381.78292 381.76472
-# 5 0.005020386 0.01124930 112.90926 112.90926 381.78292 381.76472
-# 2 0.063163836 0.00809360  81.23546  81.23546  28.56571  28.64786
-# 4 0.006682680 0.01873472 188.04042 188.04042 650.15898 650.01946
-# 6 0.006682680 0.01873472 188.04042 188.04042 650.15898 650.01946
-
-
-
-# # With interaction vars
-# Gaussian <- train(f_interact, data = new_d, 
-#                    method = lr_init,
-#                    trControl = fitControl)
-# results_interact <- Gaussian$results
-#   threshold do.scale  Accuracy     Kappa Sensitivity Specificity Pos Pred Value
-# 1       0.5    FALSE 0.8379972 0.2583882   0.2167408   0.9744254      0.6504661
-# 3   topleft    FALSE 0.7374756 0.3273766   0.6830978   0.7494170      0.3746933
-# 5    youden    FALSE 0.7374756 0.3273766   0.6830978   0.7494170      0.3746933
-# 2       0.5     TRUE 0.8199407 0.0000000   0.0000000   1.0000000            NaN
-# 4   topleft     TRUE 0.7299739 0.3103065   0.6673373   0.7437289      0.3641946
-# 6    youden     TRUE 0.7299739 0.3103065   0.6673373   0.7437289      0.3641946
-#   Neg Pred Value Precision    Recall  TrueN  FalseP FalseN   TrueP   AccuracySD
-# 1      0.8499659 0.6504661 0.2167408 2175.6  7862.2   1169 44540.4 7.079642e-04
-# 3      0.9150579 0.3746933 0.6830978 6856.8  3181.0  11454 34255.4 8.083518e-03
-# 5      0.9150579 0.3746933 0.6830978 6856.8  3181.0  11454 34255.4 8.083518e-03
-# 2      0.8199407       NaN 0.0000000    0.0 10037.8      0 45709.4 6.074198e-06
-# 4      0.9106023 0.3641946 0.6673373 6698.6  3339.2  11714 33995.4 1.092464e-02
-# 6      0.9106023 0.3641946 0.6673373 6698.6  3339.2  11714 33995.4 1.092464e-02
-#       KappaSD SensitivitySD SpecificitySD Pos Pred ValueSD Neg Pred ValueSD
-# 1 0.004803810   0.004164539  0.0004683474      0.004784940     6.603134e-04
-# 3 0.006621477   0.013000388  0.0126996702      0.007298235     1.904555e-03
-# 5 0.006621477   0.013000388  0.0126996702      0.007298235     1.904555e-03
-# 2 0.000000000   0.000000000  0.0000000000               NA     6.074198e-06
-# 4 0.009149903   0.016140924  0.0168462860      0.009688347     2.147413e-03
-# 6 0.009149903   0.016140924  0.0168462860      0.009688347     2.147413e-03
-#   PrecisionSD    RecallSD   TrueNSD    FalsePSD  FalseNSD     TruePSD
-# 1 0.004784940 0.004164539  41.75284  41.9845210  21.41261  21.2320512
-# 3 0.007298235 0.013000388 130.58024 130.4588058 580.52950 580.4156269
-# 5 0.007298235 0.013000388 130.58024 130.4588058 580.52950 580.4156269
-# 2          NA 0.000000000   0.00000   0.4472136   0.00000   0.5477226
-# 4 0.009688347 0.016140924 162.12434 161.9697503 770.04773 770.0235711
-# 6 0.009688347 0.016140924 162.12434 161.9697503 770.04773 770.0235711
 ```
 
 # Finally, once we've found a good model,
@@ -246,8 +104,10 @@ fitControl <- trainControl(method = "cv",
 lr_grid <- function(x, y, len = NULL, search = "grid") {
   # Create df of all possible combinations
   ret <- expand.grid(
+    eps = c(0),
     threshold = c("0.5"),
     do.scale = c(T),
+    op = FALSE,
     stringsAsFactors = FALSE)
 
   return(ret)

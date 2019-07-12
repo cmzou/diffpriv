@@ -2,7 +2,7 @@
 title: "hmda results visualization r"
 author: "Justina Zou"
 date: "July 8, 2019"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
@@ -15,11 +15,11 @@ library(dplyr)
 library(ggplot2)
 library(cowplot)
 
-source("./functions.R")
+source("./scripts/functions.R")
 ```
 
 ```{r include=FALSE}
-many_eps <- read_csv("../../../average_data1kmodels_1kdata_morestats.csv")
+many_eps <- read_csv("../../../average_data10kmodels_10kdata_stats.csv")
 ```
 
 ```{r eval=FALSE, include=FALSE}
@@ -76,40 +76,48 @@ many_eps <- read_csv("../../../average_data1kmodels_1kdata_morestats.csv")
 #                                                                      0.14280070
 ```
 
+
 # How does the variance of accuracy and coefficient values change with different epsilon?
 
 Variance decreases as epsilon increases.
 
 ```{r echo=FALSE}
-many_eps$row <- rep(seq(1, 100), length(unique(many_eps$eps))) # add row numbers to match eps
+ggplot(many_eps, aes(x=as.factor(log10(eps)), y=Accuracy)) + 
+  geom_boxplot() + 
+  theme_bw() +
+  labs(x = "log10(eps)", title = "Smaller values of epsilon have more variation")
+```
+
+```{r echo=FALSE}
+many_eps$row <- rep(seq(1, table(many_eps$eps)[[1]]), length(unique(many_eps$eps))) # add row numbers to match eps
 
 ggplot(many_eps, aes(x=row, y = CI)) + 
-  geom_point() + 
+  geom_point(alpha = 0.1) + 
   theme_bw() + 
   facet_wrap(. ~ eps) + 
   geom_hline(data = data.frame(
     eps = unique(many_eps$eps),
     z = (many_eps %>% group_by(eps) %>% summarise(mean = mean(CI)))$mean
   ), aes(yintercept = z), color = "red") +
-  labs(title = "CI has less variation with higher eps", subtitle = "100 runs for each eps, 10k rows")
+  labs(title = "CI has less variation with higher eps", subtitle = "10000 runs for each eps, 10k rows")
 ggplot(many_eps, aes(x=row, y = Accuracy)) + 
-  geom_point() + 
+  geom_point(alpha = 0.1) + 
   theme_bw()+ 
   facet_wrap(. ~ eps) + 
   geom_hline(data = data.frame(
     eps = unique(many_eps$eps),
     z = (many_eps %>% group_by(eps) %>% summarise(mean = mean(Accuracy)))$mean
   ), aes(yintercept = z), color = "red") +
-  labs(title = "Accuracy has less variation with higher eps", subtitle = "100 runs for each eps, 10k rows")
+  labs(title = "Accuracy has less variation with higher eps", subtitle = "10000 runs for each eps, 10k rows")
 ggplot(many_eps, aes(x=row, y = applicant_income_000s)) + 
-  geom_point() + 
+  geom_point(alpha = 0.1) + 
   theme_bw() + 
   facet_wrap(. ~ eps) + 
   geom_hline(data = data.frame(
     eps = unique(many_eps$eps),
     z = (many_eps %>% group_by(eps) %>% summarise(mean = mean(applicant_income_000s)))$mean
   ), aes(yintercept = z), color = "red") +
-  labs(title = "Coefficient variation decreases for higher eps", subtitle = "100 runs for each eps, 10k rows")
+  labs(title = "Coefficient variation decreases for higher eps", subtitle = "10000 runs for each eps, 10k rows")
 ```
 
 # How do the confusion matrices differ for different epsilon?
@@ -136,29 +144,66 @@ for(i in seq(4, 24, 4)) {
   summ_cm <- convert_one(many_eps, base_idx + i, summ_cm)
 }
 
+summ_cm <- summ_cm %>% 
+  group_by(eps) %>% 
+  mutate(protapplicant_race_name_1 = protapplicant_race_name_1 / sum(protapplicant_race_name_1))
+summ_cm <- summ_cm %>% 
+  group_by(eps) %>% 
+  mutate(nprotapplicant_race_name_1 = nprotapplicant_race_name_1 / sum(nprotapplicant_race_name_1))
+
 plot_cm(summ_cm, "ueN", use_facet=T, facet="eps", title = "Overall (Avg)")
 
 plot_cm(summ_cm, "protapplicant_race_name_1", use_facet=T, facet="eps", title = "Protected Race (Avg)")
 plot_cm(summ_cm, "nprotapplicant_race_name_1", use_facet=T, facet="eps", title = "Not Protected Race (Avg)")
 
+# for(i in 1:ngroups){
+#   eps_1 <- summ_cm %>% filter(eps == unique(many_eps$eps)[i])
+#   guess_1 <- eps_1 %>% filter(predicted == 1)
+#   
+#   prob_race_p_1 <- sum(guess_1$protapplicant_race_name_1) / sum(eps_1$protapplicant_race_name_1)
+#   prob_race_np_1 <- sum(guess_1$nprotapplicant_race_name_1) / sum(eps_1$nprotapplicant_race_name_1)
+#   prob_ethn_p_1 <- sum(guess_1$protapplicant_ethnicity_name) / sum(eps_1$protapplicant_ethnicity_name)
+#   prob_ethn_np_1 <- sum(guess_1$nprotapplicant_ethnicity_name) / sum(eps_1$nprotapplicant_ethnicity_name)
+#   prob_sex_p_1 <- sum(guess_1$protapplicant_sex_name) / sum(eps_1$protapplicant_sex_name)
+#   prob_sex_np_1 <- sum(guess_1$nprotapplicant_sex_name) / sum(eps_1$nprotapplicant_sex_name)
+# }
+
 eps_1 <- summ_cm %>% filter(eps == 1)
 guess_1 <- eps_1 %>% filter(predicted == 1)
 
-prob_race_p <- sum(guess_1$protapplicant_race_name_1) / sum(eps_1$protapplicant_race_name_1)
-prob_race_np <- sum(guess_1$nprotapplicant_race_name_1) / sum(eps_1$nprotapplicant_race_name_1)
-prob_ethn_p <- sum(guess_1$protapplicant_ethnicity_name) / sum(eps_1$protapplicant_ethnicity_name)
-prob_ethn_np <- sum(guess_1$nprotapplicant_ethnicity_name) / sum(eps_1$nprotapplicant_ethnicity_name)
-prob_sex_p <- sum(guess_1$protapplicant_sex_name) / sum(eps_1$protapplicant_sex_name)
-prob_sex_np <- sum(guess_1$nprotapplicant_sex_name) / sum(eps_1$nprotapplicant_sex_name)
+prob_race_p_1 <- sum(guess_1$protapplicant_race_name_1) / sum(eps_1$protapplicant_race_name_1)
+prob_race_np_1 <- sum(guess_1$nprotapplicant_race_name_1) / sum(eps_1$nprotapplicant_race_name_1)
+prob_ethn_p_1 <- sum(guess_1$protapplicant_ethnicity_name) / sum(eps_1$protapplicant_ethnicity_name)
+prob_ethn_np_1 <- sum(guess_1$nprotapplicant_ethnicity_name) / sum(eps_1$nprotapplicant_ethnicity_name)
+prob_sex_p_1 <- sum(guess_1$protapplicant_sex_name) / sum(eps_1$protapplicant_sex_name)
+prob_sex_np_1 <- sum(guess_1$nprotapplicant_sex_name) / sum(eps_1$nprotapplicant_sex_name)
+
+eps.1 <- summ_cm %>% filter(eps == 0.1)
+guess.1 <- eps.1 %>% filter(predicted == 1)
+
+prob_race_p.1 <- sum(guess.1$protapplicant_race_name_1) / sum(eps.1$protapplicant_race_name_1)
+prob_race_np.1 <- sum(guess.1$nprotapplicant_race_name_1) / sum(eps.1$nprotapplicant_race_name_1)
+prob_ethn_p.1 <- sum(guess.1$protapplicant_ethnicity_name) / sum(eps.1$protapplicant_ethnicity_name)
+prob_ethn_np.1 <- sum(guess.1$nprotapplicant_ethnicity_name) / sum(eps.1$nprotapplicant_ethnicity_name)
+prob_sex_p.1 <- sum(guess.1$protapplicant_sex_name) / sum(eps.1$protapplicant_sex_name)
+prob_sex_np.1 <- sum(guess.1$nprotapplicant_sex_name) / sum(eps.1$nprotapplicant_sex_name)
 ```
+
+With eps=0.1, and DI is calculated as Pr(f(y) = 1 | protected) / Pr(f(y) = 1 | not protected)
+
+DI for race = `r prob_race_p.1/prob_race_np.1`
+
+DI for ethnicity = `r prob_ethn_p.1/prob_ethn_np.1`
+
+DI for sex = `r prob_sex_p.1/prob_sex_np.1`
 
 With eps=1, and DI is calculated as Pr(f(y) = 1 | protected) / Pr(f(y) = 1 | not protected)
 
-DI for race = `r prob_race_p/prob_race_np`
+DI for race = `r prob_race_p_1/prob_race_np_1`
 
-DI for ethnicity = `r prob_ethn_p/prob_ethn_np`
+DI for ethnicity = `r prob_ethn_p_1/prob_ethn_np_1`
 
-DI for sex = `r prob_sex_p/prob_sex_np`
+DI for sex = `r prob_sex_p_1/prob_sex_np_1`
 
 <!-- # What does the distribution of Accuracy look like for different epsilon? -->
 
