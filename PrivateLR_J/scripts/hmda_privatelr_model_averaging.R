@@ -2,16 +2,26 @@
 # 
 # DP Logistic Regression on HMDA dataset using PrivateLR package
 # Averages n models with different epsilon values.
+# Implements k-fold cross validation during model averaging, 
+# so the actual number of runs is num_runs*k.
+# Assumes data has already been filtered and subsetted.
 # Outputs:
-#   average_data.csv: coefficients, accuracy, and auc for all runs
+#   output_r.csv: raw df with columns for 
+#     predicted probabilties, true class, eps, id (to keep track of runs), and additional attributes 
+#     as specified in the change variables section
+#   coef_data.csv: df with coefficients of the models and eps
+#
+# Variables to be changed are in the process function and before the packages.
 # 
 ##############
 
+### CHANGE VARS HERE (1/2) --------
 pkg_loc <- "/home/home2/jmz15/rpackages/" # directory of libraries
 write_dir <- "/usr/project/xtmp/output_and_data/" # where outputs are written
 data_dir <- "/usr/project/xtmp/output_and_data/" # where data is located
+#----------------------------
 
-# .libPaths(pkg_loc)
+.libPaths(pkg_loc)
 
 if(!require("optparse")) {
   install.packages("optparse")
@@ -21,17 +31,9 @@ if(!require("PrivateLR")) {
   install.packages("PrivateLR")
   library("PrivateLR")
 }
-if(!require("dplyr")) {
-  install.packages("dplyr")
-  library("dplyr")
-}
 if(!require("readr")) {
   install.packages("readr")
   library("readr")
-}
-if(!require("caret")) {
-  install.packages("caret")
-  library("caret")
 }
 if(!require("data.table")) {
   install.packages("data.table")
@@ -45,7 +47,7 @@ if(!require("data.table")) {
 option_list = list(
   make_option(c("-if", "--in_file"),
               type="character",
-              default=paste0(data_dir, "hmda_nc_noencode.csv"),
+              default=paste0(data_dir, "hmda_gancscva_clean_allraces.csv"),
               help="name of input data file",
               metavar="character"),
   make_option(c("--num_runs"),
@@ -56,7 +58,17 @@ option_list = list(
   make_option(c("--subset"),
               type="logical",
               default=FALSE,
-              help="subset the data to about 10,000 points?",
+              help="subset the data to about 10%?",
+              metavar="character"),
+  make_option(c("--coef_file"),
+              type="character",
+              default=paste0(write_dir, "coef_data", format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv"),
+              help="filename for coef_data.csv (coefficient data)",
+              metavar="character"),
+  make_option(c("--out_file"),
+              type="character",
+              default=paste0(write_dir, "output_r", format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv"),
+              help="filename for output_r.csv (output file with predicted, true, etc.)",
               metavar="character")
 )
 
@@ -67,45 +79,51 @@ process <- function(opt) {
   
   data <- fread(opt$in_file)
   
+  # Want unique identifier for everyone
+  if("V1" %in% colnames(data)) {
+    colnames(data)[colnames(data)=="V1"] <- "id"
+  }
+  if("X1" %in% colnames(data)) {
+    colnames(data)[colnames(data)=="X1"] <- "id"
+  } else {
+    data$id <- row.names(data)
+  }
+  
+  # Spaces in column names breaks things
   colnames(data)<-make.names(colnames(data),unique = TRUE)
   
-  ### CHANGE VARS HERE --------
+  ### CHANGE VARS HERE (2/2) --------
   # Remove NA? Do not set to FALSE, it hasn't been implemented.
   remove_na <- TRUE
+  # Number of k for k-fold cross validation
+  k <- 5
   
   # Variables to use in model
   predic <- "action_taken_name"
-  explan <- colnames(data)[!(colnames(data) %in% c(predic))] 
+  explan <- colnames(data)[!(colnames(data) %in% c(predic, "id"))] # get all columns except predic and id
   
   # Categorical variables
   to_factor <- c(predic)
   
-  # For fairness - make sure indices match!
-  attribute <- c("applicant_race_name_1_0", "applicant_ethnicity_name_Hispanic.or.Latino", "applicant_sex_name_Female")
+  # For fairness - make sure indices match! 
+  # We're working so that if possible, 0 is protected and 1 is not protected
+  attribute <- c("applicant_race_name_1_Black_or_African_American", 
+                 "applicant_race_name_1_White", "applicant_ethnicity_name_Not_Hispanic_or_Latino", 
+                 "applicant_sex_name_Male")
+  attr_name <- c("race_black", "race_white", "ethni", "sex") # column names of the attributes in the return file
   # ----------------------------
   
   if(opt$subset) {
-    new_d <- sample_n(data, 10000)
+    temp <- sample(nrow(data), round(nrow(data)*0.10)) # sample 10% of data
+    new_d <- data[temp,]
   } else {
     new_d <- data 
   }
   
-  # Filter down columns
-  new_d <- new_d[,c(explan, predic), with=FALSE]
-  # Remove NA
-  if(remove_na) {
-    new_d <- new_d[complete.cases(new_d), ]
-  }
   # Transform data to factor
   if(length(to_factor) > 0) {
     new_d[, (to_factor) := lapply(.SD, factor), .SDcols = to_factor]
   }
-  
-  # Split into test and train - 80/20
-  n_samps <- floor(0.8 * nrow(new_d))
-  idx <- sample(seq_len(nrow(new_d)), size = n_samps)
-  train <- new_d[idx, ]
-  test <- new_d[-idx, ]
   
   # Specify variables to use in model
   f <- as.formula(
@@ -113,13 +131,17 @@ process <- function(opt) {
           paste(explan, collapse = " + "), 
           sep = " ~ "))
   
+  # Manual k-fold cross validation because can't get all the different models normally
+  new_d <- new_d[sample(nrow(new_d)),] # shuffle df
+  folds <- cut(seq(1,nrow(new_d)),breaks=k,labels=FALSE) 
+  
   print(paste0("---------------Begin----------------", Sys.time()))
   print(paste0("Num rows: ", nrow(new_d), " Num runs: ", opt$num_runs))
   
   # Model averaging
-  # The i does nothing.
-  # Returns vector of useful info
-  create_model <- function(i, eps) {
+  # Function that creates a model given eps, train df, and test df 
+  # Returns a df with the predicted, true, and characteristics that we care about
+  create_model <- function(i, eps, train, test) {
     m <- dplr(f,train, eps=eps, op=T,do.scale = T, threshold="0.5")
     p <- m$pred(test, type = "probabilities")
     
@@ -127,23 +149,53 @@ process <- function(opt) {
     # Change column names to be used later for evaluation
     ret$pred <- p
     colnames(ret)[colnames(ret)==paste0(predic)] <- "true"
-    ret <- ret[, c(attribute, "pred", "true"), with=FALSE] # subsetting columns
-    colnames(ret)[colnames(ret) %in% attribute] <- c("race", "ethni", "sex")
+    ret <- ret[, c(attribute, "pred", "true", "id"), with=FALSE] # subsetting columns
+    colnames(ret)[colnames(ret) %in% attribute] <- attr_name # renaming columns
     # Add column to indicate which run it is
-    ret$id <- as.numeric(Sys.time())
+    ret$run <- i
+    
+    # Write coefficient information into csv
+    fwrite(data.table(t(m$par), eps=eps), opt$coef_file, append = TRUE)
+    
+    return(ret)
+  }
+  
+  # Function that runs k-fold cross validation manually
+  # Args:
+  #   eps: which eps to use
+  #   df: the full dataset
+  #   folds: the indices that are used to separate df into train and test sets
+  #   i: the index to indicate which run it is 
+  # Returns:
+  #   
+  cross_validate <- function(i, eps, df, folds) {
+    ret <- lapply(1:k, function(j) {
+      # Segment df by fold using the which() function 
+      idx <- which(folds==j, arr.ind=TRUE)
+      test <- df[idx, ]
+      train <- df[-idx, ]
+      
+      m <- create_model(j, eps, train, test)
+      return(m)
+    })
+    
+    # Modify output so that it's easier to work with
+    ret <- rbindlist(ret)
     
     return(ret)
   }
   
   eps_list <- 2^seq(-8,4)
   many_models <- lapply(eps_list, function(eps) {
-    out <- lapply(1:opt$num_runs, create_model, eps=eps) # run several times
+    out <- lapply(1:opt$num_runs, cross_validate, eps=eps, df=new_d, folds=folds) # run several times
     
     # Modify output so that it's easier to work with
     out <- rbindlist(out)
     
     # Add column to indicate epsilon used
     out$eps <- eps
+    # Modify run column so that it makes more sense (i.e. restarts for each epsilon)
+    out$run <- rleid(out$run)
     
     return(out)
   })
@@ -153,7 +205,7 @@ process <- function(opt) {
   # Convert output to workable output by merging the outputs in the list into one dataframe
   many_data <- rbindlist(many_models)
   
-  fwrite(many_data, paste0(write_dir, "output", format(Sys.time(), format= "%Y-%m-%d_%H-%M-%S"), ".csv"))
+  fwrite(many_data, opt$out_file)
   
   print(summary(many_data)) # we print so that it can be easier to match out file to output csv
 }
