@@ -31,10 +31,6 @@ if(!require("PrivateLR")) {
   install.packages("PrivateLR")
   library("PrivateLR")
 }
-if(!require("readr")) {
-  install.packages("readr")
-  library("readr")
-}
 if(!require("data.table")) {
   install.packages("data.table")
   library("data.table")
@@ -52,23 +48,18 @@ option_list = list(
               metavar="character"),
   make_option(c("--num_runs"),
               type="numeric",
-              default=500,
-              help="number of models to create",
+              default=100,
+              help="number of models to create (technically * 5)",
               metavar="character"),
   make_option(c("--subset"),
               type="logical",
               default=FALSE,
               help="subset the data to about 10%?",
               metavar="character"),
-  make_option(c("--coef_file"),
+  make_option(c("--file_add"),
               type="character",
-              default=paste0(write_dir, "coef_data", format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv"),
-              help="filename for coef_data.csv (coefficient data)",
-              metavar="character"),
-  make_option(c("--out_file"),
-              type="character",
-              default=paste0(write_dir, "output_r", format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv"),
-              help="filename for output_r.csv (output file with predicted, true, etc.)",
+              default=NULL,
+              help="name to add to end of output and coef files",
               metavar="character")
 )
 
@@ -81,13 +72,15 @@ process <- function(opt) {
   
   # Want unique identifier for everyone
   if("V1" %in% colnames(data)) {
-    colnames(data)[colnames(data)=="V1"] <- "id"
+    data$V1 <- NULL
   }
   if("X1" %in% colnames(data)) {
-    colnames(data)[colnames(data)=="X1"] <- "id"
-  } else {
-    data$id <- row.names(data)
+    data$X1 <- NULL
+  } 
+  if(!"id" %in% colnames(data)) {
+    stop("There should be a unique identifier for each applicant in the input data")
   }
+  
   
   # Spaces in column names breaks things
   colnames(data)<-make.names(colnames(data),unique = TRUE)
@@ -97,6 +90,8 @@ process <- function(opt) {
   remove_na <- TRUE
   # Number of k for k-fold cross validation
   k <- 5
+  # Epsilons to test
+  eps_list <- 2^seq(-4,1)
   
   # Variables to use in model
   predic <- "action_taken_name"
@@ -136,13 +131,20 @@ process <- function(opt) {
   folds <- cut(seq(1,nrow(new_d)),breaks=k,labels=FALSE) 
   
   print(paste0("---------------Begin----------------", Sys.time()))
-  print(paste0("Num rows: ", nrow(new_d), " Num runs: ", opt$num_runs))
+  print(paste0("Num rows: ", nrow(new_d), " Num runs: ", opt$num_runs * 5))
   
   # Model averaging
   # Function that creates a model given eps, train df, and test df 
   # Returns a df with the predicted, true, and characteristics that we care about
   create_model <- function(i, eps, train, test) {
-    m <- dplr(f,train, eps=eps, op=T,do.scale = T, threshold="0.5")
+    # op MUST be FALSE if eps==0 (nonprivate)
+    if(eps == 0){
+      op <- F
+    } else {
+      op <- T
+    }
+    
+    m <- dplr(f,train, eps=eps, op=op,do.scale = T, threshold="0.5")
     p <- m$pred(test, type = "probabilities")
     
     ret <- test
@@ -155,19 +157,22 @@ process <- function(opt) {
     ret$run <- i
     
     # Write coefficient information into csv
-    fwrite(data.table(t(m$par), eps=eps), opt$coef_file, append = TRUE)
+    coef_file <- paste0(write_dir, "coef_", opt$num_runs * 5, "runs_", 
+                        nrow(new_d), "rows_", opt$file_add, ".csv")
+    fwrite(data.table(t(m$par), eps=eps), coef_file, append = TRUE)
     
     return(ret)
   }
   
   # Function that runs k-fold cross validation manually
+  # Manually doing so because we want the class attributes for fairness calculations later
   # Args:
   #   eps: which eps to use
   #   df: the full dataset
   #   folds: the indices that are used to separate df into train and test sets
   #   i: the index to indicate which run it is 
   # Returns:
-  #   
+  #   df with columns true, predic, and other attributes
   cross_validate <- function(i, eps, df, folds) {
     ret <- lapply(1:k, function(j) {
       # Segment df by fold using the which() function 
@@ -182,10 +187,13 @@ process <- function(opt) {
     # Modify output so that it's easier to work with
     ret <- rbindlist(ret)
     
+    acc <- table(ret$true == as.numeric(ret$pred >= 0.5))
+    acc <- acc["TRUE"] / (acc["FALSE"] + acc["TRUE"])
+    print(paste0("--------run_5=", i, " eps=", eps, " acc=", acc, "-------", Sys.time()))
+    
     return(ret)
   }
   
-  eps_list <- 2^seq(-8,4)
   many_models <- lapply(eps_list, function(eps) {
     out <- lapply(1:opt$num_runs, cross_validate, eps=eps, df=new_d, folds=folds) # run several times
     
@@ -200,14 +208,23 @@ process <- function(opt) {
     return(out)
   })
   
+  # Nonprivate version -- don't need to run many times since nonprivate is deterministic
+  nonprivate_m <- cross_validate(0, 0, new_d, folds)
+  nonprivate_m$eps <- Inf
+  
   print(paste0("---------------End----------------", Sys.time()))
   
   # Convert output to workable output by merging the outputs in the list into one dataframe
   many_data <- rbindlist(many_models)
   
-  fwrite(many_data, opt$out_file)
+  many_data <- rbind(many_data, nonprivate_m)
   
-  print(summary(many_data)) # we print so that it can be easier to match out file to output csv
+  out_file <- paste0(write_dir, "output_r_", opt$num_runs * 5, "runs_", 
+                     nrow(new_d), "rows_", opt$file_add,
+                      format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv")
+  fwrite(many_data, out_file)
+  
+  summary(many_data) # so we can more easily match files
 }
 
 # Main -- reads in flags and does stuff

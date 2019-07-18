@@ -9,3 +9,6 @@ We want to find out whether implementing differential privacy would have an impa
 
 ## Data
 The dataset we use is the Home Mortgage Disclosure Act Loan/Application Register (HMDA-LAR) data from 2017.
+
+## Methods
+We build classifiers to predict whether an applicant's loan application was accepted or denied. We are using two differentially private packages for machine learning, Tensorflow Privacy and PrivateLR. 
