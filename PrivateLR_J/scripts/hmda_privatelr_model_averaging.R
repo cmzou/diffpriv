@@ -35,6 +35,10 @@ if(!require("data.table")) {
   install.packages("data.table")
   library("data.table")
 }
+if(!require("parallel")) {
+  install.packages("parallel")
+  library("parallel")
+}
 
 # Packages also needed
 # e1071, latest colorspace, rlang
@@ -67,6 +71,7 @@ option_list = list(
 # Runs script
 process <- function(opt) {
   set.seed(2019)
+  num_cores <- detectCores()
   
   data <- fread(opt$in_file)
   
@@ -80,7 +85,6 @@ process <- function(opt) {
   if(!"id" %in% colnames(data)) {
     stop("There should be a unique identifier for each applicant in the input data")
   }
-  
   
   # Spaces in column names breaks things
   colnames(data)<-make.names(colnames(data),unique = TRUE)
@@ -140,11 +144,13 @@ process <- function(opt) {
     # op MUST be FALSE if eps==0 (nonprivate)
     if(eps == 0){
       op <- F
+      eps_write <- Inf
     } else {
       op <- T
+      eps_write <- eps
     }
     
-    m <- dplr(f,train, eps=eps, op=op,do.scale = T, threshold="0.5")
+    m <- dplr(f,train, eps=eps, op=op,do.scale = T, threshold="0.5", lambda = 0.001)
     p <- m$pred(test, type = "probabilities")
     
     ret <- test
@@ -159,7 +165,7 @@ process <- function(opt) {
     # Write coefficient information into csv
     coef_file <- paste0(write_dir, "coef_", opt$num_runs * 5, "runs_", 
                         nrow(new_d), "rows_", opt$file_add, ".csv")
-    fwrite(data.table(t(m$par), eps=eps), coef_file, append = TRUE)
+    fwrite(data.table(t(m$par), eps=eps_write), coef_file, append = TRUE)
     
     return(ret)
   }
@@ -174,7 +180,7 @@ process <- function(opt) {
   # Returns:
   #   df with columns true, predic, and other attributes
   cross_validate <- function(i, eps, df, folds) {
-    ret <- lapply(1:k, function(j) {
+    ret <- mclapply(1:k, function(j) {
       # Segment df by fold using the which() function 
       idx <- which(folds==j, arr.ind=TRUE)
       test <- df[idx, ]
@@ -182,7 +188,7 @@ process <- function(opt) {
       
       m <- create_model(j, eps, train, test)
       return(m)
-    })
+    },mc.cores = num_cores)
     
     # Modify output so that it's easier to work with
     ret <- rbindlist(ret)
@@ -221,7 +227,7 @@ process <- function(opt) {
   
   out_file <- paste0(write_dir, "output_r_", opt$num_runs * 5, "runs_", 
                      nrow(new_d), "rows_", opt$file_add,
-                      format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv")
+                     format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv")
   fwrite(many_data, out_file)
   
   summary(many_data) # so we can more easily match files
