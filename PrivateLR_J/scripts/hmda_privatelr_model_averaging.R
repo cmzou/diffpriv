@@ -39,8 +39,12 @@ if(!require("parallel")) {
   install.packages("parallel")
   library("parallel")
 }
+if(!require("caret")) {
+  install.packages("caret")
+  library("caret")
+}
 
-# Packages also needed
+# Packages also needed -- probably
 # e1071, latest colorspace, rlang
 
 # Flags
@@ -52,7 +56,7 @@ option_list = list(
               metavar="character"),
   make_option(c("--num_runs"),
               type="numeric",
-              default=100,
+              default=10,
               help="number of models to create (technically * 5)",
               metavar="character"),
   make_option(c("--subset"),
@@ -132,7 +136,7 @@ process <- function(opt) {
   
   # Manual k-fold cross validation because can't get all the different models normally
   new_d <- new_d[sample(nrow(new_d)),] # shuffle df
-  folds <- cut(seq(1,nrow(new_d)),breaks=k,labels=FALSE) 
+  folds <- createFolds(factor(new_d$action_taken_name), k=k, list=TRUE) # stratified k-fold
   
   print(paste0("---------------Begin----------------", Sys.time()))
   print(paste0("Num rows: ", nrow(new_d), " Num runs: ", opt$num_runs * 5))
@@ -181,14 +185,13 @@ process <- function(opt) {
   #   df with columns true, predic, and other attributes
   cross_validate <- function(i, eps, df, folds) {
     ret <- mclapply(1:k, function(j) {
-      # Segment df by fold using the which() function 
-      idx <- which(folds==j, arr.ind=TRUE)
-      test <- df[idx, ]
-      train <- df[-idx, ]
+      # Segment df by fold
+      test <- df[folds[[k]], ]
+      train <- df[-folds[[k]], ]
       
       m <- create_model(j, eps, train, test)
       return(m)
-    },mc.cores = num_cores)
+    }, mc.cores=num_cores)
     
     # Modify output so that it's easier to work with
     ret <- rbindlist(ret)
