@@ -17,11 +17,11 @@ The dataset is cleaned using `insert_file_here.ipynb`. The reasoning can be foun
 
 We measure fairness using disparate impact because it has connections to US labor law. We measure disparate impact with respect to approval, false negative, and false positive because we feel that protecting individuals from being falsely denied is important.
 
-We build classifiers to predict whether an applicant's loan application was accepted or denied. We are using two differentially private packages for machine learning, Tensorflow Privacy and PrivateLR to compare how privacy affects different algorithms. We use neural networks and regularized logistic regression.
+We build classifiers to predict whether an applicant's loan application was accepted or denied. We are using two differentially private packages for machine learning, [Tensorflow Privacy](https://github.com/tensorflow/privacy) and [PrivateLR](https://cran.r-project.org/web/packages/PrivateLR/PrivateLR.pdf) to compare how privacy affects different algorithms. We use neural networks and regularized logistic regression.
 
 We run each algorithm for 6 epsilons, from 2 to 0.0625. For each epsilon, we create 50 models, including stratified 5-fold cross validation to measure variance in outputs.
 
-We use the package LIME to aid in neural network interpretation. 
+We use the package [LIME](https://github.com/marcotcr/lime) to aid in neural network interpretation. 
 
 ## Results
 
@@ -29,6 +29,6 @@ details
 
 ## References
 
-C. Dwork and A. Roth (2014), ìThe Algorithmic Foundations of Differential Privacyî, Foundations and Trends in Theoretical Computer Science: Vol. 9: No. 3ñ4, pp 211-407. http://dx.doi.org/10.1561/0400000042.
+C. Dwork and A. Roth (2014), ‚ÄúThe Algorithmic Foundations of Differential Privacy‚Äù, Foundations and Trends in Theoretical Computer Science: Vol. 9: No. 3‚Äì4, pp 211-407. http://dx.doi.org/10.1561/0400000042.
 
-S. Kuppam, R. Mckenna, D. Pujol, M. Hay, A. Machanavajjhala, and G. Miklau (2019), ìFair Decision Making using Privacy-Protected Dataî. https://arxiv.org/abs/1905.12744.
+S. Kuppam, R. Mckenna, D. Pujol, M. Hay, A. Machanavajjhala, and G. Miklau (2019), ‚ÄúFair Decision Making using Privacy-Protected Data‚Äù. https://arxiv.org/abs/1905.12744.
