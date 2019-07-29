@@ -11,35 +11,68 @@
 #     as specified in the change variables section
 #   coef_data.csv: df with coefficients of the models and eps
 #
-# Variables to be changed are in the process function and before the packages.
+# Variables to be changed are before the packages
 # 
 ##############
 
 ### CHANGE VARS HERE (1/2) --------
-pkg_loc <- "/home/home2/jmz15/rpackages/" # directory of libraries
+## Things for reading and writing
+pkg_loc <- NULL # directory of libraries -- set to NULL if it's not in some special place
 write_dir <- "/usr/project/xtmp/output_and_data/" # where outputs are written
 data_dir <- "/usr/project/xtmp/output_and_data/" # where data is located
+
+## Things for model creating
+# Number of k for k-fold cross validation
+k <- 5
+# Epsilons to test
+eps_list <- 2^seq(-4,1)
+# Does the data need to be scaled to be within the unit ball?
+need_scale = TRUE
+
+# Variables to use in model
+predic <- "action_taken_name"
+explan <- c('tract_to_msamd_income', 'population', 'minority_population',
+            'number_of_owner_occupied_units', 'number_of_1_to_4_family_units', 'loan_amount_000s',
+            'hud_median_family_income', 'applicant_income_000s', 
+            'property_type_name_0', 'owner_occupancy_name_0', 'loan_type_name_0',
+            'loan_purpose_name_0',
+            'lien_status_name_0', 'co_applicant_sex_name_0', 
+            'applicant_sex_name_Male', 'applicant_race_name_1_White', 
+            'applicant_ethnicity_name_Not_Hispanic_or_Latino', 'agency_abbr_0')
+# Can use `explan <- colnames(data)[!(colnames(data) %in% c(predic, "id"))]` to use all columns except predic and id
+
+# Categorical variables
+to_factor <- c(predic)
+
+# For fairness - make sure indices match! 
+# We're working so that if possible, 0 is protected and 1 is not protected
+attribute <- c("applicant_race_name_1_Black_or_African_American", 
+               "applicant_race_name_1_White", "applicant_ethnicity_name_Not_Hispanic_or_Latino", 
+               "applicant_sex_name_Male")
+attr_name <- c("race_black", "race_white", "ethni", "sex") # column names of the attributes in the return file
 #----------------------------
 
-.libPaths(pkg_loc)
+if(!is.null(pkg_loc)){
+  .libPaths(pkg_loc) 
+}
 
-if(!require("optparse")) {
+if(!require("optparse")) { # to read in flags
   install.packages("optparse")
   library("optparse")
 }
-if(!require("PrivateLR")) {
+if(!require("PrivateLR")) { # to use dp logistic regression
   install.packages("PrivateLR")
   library("PrivateLR")
 }
-if(!require("data.table")) {
+if(!require("data.table")) { # for faster data reading and writing
   install.packages("data.table")
   library("data.table")
 }
-if(!require("parallel")) {
+if(!require("parallel")) { # to parallelize 
   install.packages("parallel")
   library("parallel")
 }
-if(!require("caret")) {
+if(!require("caret")) { # for stratified k-fold cross validation
   install.packages("caret")
   library("caret")
 }
@@ -71,7 +104,6 @@ option_list = list(
               metavar="character")
 )
 
-
 # Runs script
 process <- function(opt) {
   set.seed(2019)
@@ -91,30 +123,7 @@ process <- function(opt) {
   }
   
   # Spaces in column names breaks things
-  colnames(data)<-make.names(colnames(data),unique = TRUE)
-  
-  ### CHANGE VARS HERE (2/2) --------
-  # Remove NA? Do not set to FALSE, it hasn't been implemented.
-  remove_na <- TRUE
-  # Number of k for k-fold cross validation
-  k <- 5
-  # Epsilons to test
-  eps_list <- 2^seq(-4,1)
-  
-  # Variables to use in model
-  predic <- "action_taken_name"
-  explan <- colnames(data)[!(colnames(data) %in% c(predic, "id"))] # get all columns except predic and id
-  
-  # Categorical variables
-  to_factor <- c(predic)
-  
-  # For fairness - make sure indices match! 
-  # We're working so that if possible, 0 is protected and 1 is not protected
-  attribute <- c("applicant_race_name_1_Black_or_African_American", 
-                 "applicant_race_name_1_White", "applicant_ethnicity_name_Not_Hispanic_or_Latino", 
-                 "applicant_sex_name_Male")
-  attr_name <- c("race_black", "race_white", "ethni", "sex") # column names of the attributes in the return file
-  # ----------------------------
+  colnames(data) <- make.names(colnames(data), unique=TRUE)
   
   if(opt$subset) {
     temp <- sample(nrow(data), round(nrow(data)*0.10)) # sample 10% of data
@@ -134,16 +143,31 @@ process <- function(opt) {
           paste(explan, collapse = " + "), 
           sep = " ~ "))
   
+  # Make sure flags are correct
+  if(file.exists(paste0(write_dir, "coef_", opt$num_runs * 5, "runs_",
+                        nrow(new_d), "rows_", opt$file_add, ".csv"))) {
+    stop("Coef file with the same name exists. Please remove.")
+  }
+  
   # Manual k-fold cross validation because can't get all the different models normally
   new_d <- new_d[sample(nrow(new_d)),] # shuffle df
   folds <- createFolds(factor(new_d$action_taken_name), k=k, list=TRUE) # stratified k-fold
   
   print(paste0("---------------Begin----------------", Sys.time()))
   print(paste0("Num rows: ", nrow(new_d), " Num runs: ", opt$num_runs * 5))
+  print(paste0("in_file=", opt$in_file))
+  print(paste0("file_add=", opt$file_add))
   
   # Model averaging
-  # Function that creates a model given eps, train df, and test df 
-  # Returns a df with the predicted, true, and characteristics that we care about
+  # Function that creates a model
+  # Args:
+  #   i: run id
+  #   eps: eps to use in model
+  #   train: df containing training data
+  #   test: df containing testing data
+  # Returns:
+  #   df with the predicted probabilities, true class,
+  #     and attributes specified in change variables section 2/2
   create_model <- function(i, eps, train, test) {
     # op MUST be FALSE if eps==0 (nonprivate)
     if(eps == 0){
@@ -154,8 +178,8 @@ process <- function(opt) {
       eps_write <- eps
     }
     
-    m <- dplr(f,train, eps=eps, op=op,do.scale = T, threshold="0.5", lambda = 0.001)
-    p <- m$pred(test, type = "probabilities")
+    m <- dplr(f,train, eps=eps, op=op, do.scale=need_scale, threshold="0.5", lambda=0.001)
+    p <- m$pred(test, type="probabilities")
     
     ret <- test
     # Change column names to be used later for evaluation
@@ -168,7 +192,7 @@ process <- function(opt) {
     
     # Write coefficient information into csv
     coef_file <- paste0(write_dir, "coef_", opt$num_runs * 5, "runs_", 
-                        nrow(new_d), "rows_", opt$file_add, ".csv")
+                        nrow(new_d), "rows_", opt$file_add, ".csv") # don't append time because we write into this file many times
     fwrite(data.table(t(m$par), eps=eps_write), coef_file, append = TRUE)
     
     return(ret)
@@ -186,8 +210,8 @@ process <- function(opt) {
   cross_validate <- function(i, eps, df, folds) {
     ret <- mclapply(1:k, function(j) {
       # Segment df by fold
-      test <- df[folds[[k]], ]
-      train <- df[-folds[[k]], ]
+      test <- df[folds[[j]], ]
+      train <- df[-folds[[j]], ]
       
       m <- create_model(j, eps, train, test)
       return(m)
@@ -203,6 +227,7 @@ process <- function(opt) {
     return(ret)
   }
   
+  # Run the number of runs specified for each epsilon 
   many_models <- lapply(eps_list, function(eps) {
     out <- lapply(1:opt$num_runs, cross_validate, eps=eps, df=new_d, folds=folds) # run several times
     
@@ -228,12 +253,11 @@ process <- function(opt) {
   
   many_data <- rbind(many_data, nonprivate_m)
   
+  # Write output
   out_file <- paste0(write_dir, "output_r_", opt$num_runs * 5, "runs_", 
                      nrow(new_d), "rows_", opt$file_add,
                      format(Sys.time(), format="%Y-%m-%d_%H-%M-%S"), ".csv")
   fwrite(many_data, out_file)
-  
-  summary(many_data) # so we can more easily match files
 }
 
 # Main -- reads in flags and does stuff

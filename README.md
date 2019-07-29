@@ -1,4 +1,4 @@
-# Protecting Individual Privacy Using Differential Privacy
+﻿# Protecting Individual Privacy Using Differential Privacy
 
 This repository contains the outputs and code for the Duke Summer Undergraduate Programs in Computer Science project in 2019. 
 
@@ -13,7 +13,7 @@ We want to find out whether implementing differential privacy would have an impa
 The dataset we use is the Home Mortgage Disclosure Act Loan/Application Register (HMDA-LAR) data from 2017. 
 
 ## Methods
-The dataset is cleaned using `insert_file_here.ipynb`. The reasoning can be found in `location`. We balance the dataset by `action_taken_name` and by different protected classes so that we can start with 
+The dataset is cleaned using `insert_file_here.ipynb`. The reasoning can be found in `location`. We balance the dataset by `action_taken_name` and by different protected classes so that we can create a better model and start with unbiased data.
 
 We measure fairness using disparate impact because it has connections to US labor law. We measure disparate impact with respect to approval, false negative, and false positive because we feel that protecting individuals from being falsely denied is important.
 
