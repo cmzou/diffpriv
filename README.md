@@ -14,6 +14,12 @@ We want to find out whether implementing differential privacy would have an impa
 ## Data
 The dataset we use is the Home Mortgage Disclosure Act Loan/Application Register (HMDA-LAR) data from 2017. 
 
+In particular, we focus on the loan records from four states: North Carolina, South Carolina, Georgia, and Virginia.
+
+In the full dataset, most of the features we focus on are imbalanced. For instance, the loan outcome is approximately 80% approval and 20% denial. The demographic features we investigate for the fairness aspect of the project are similarly disproportinate<sup id="a1">[1](#f1)</sup>, containing significanly higher number of records of the unprotected groups. 
+
+Therefore, after initial testing with the full dataset, we quickly transitioned to using various balanced datasets<sup id="a2">[2](#f2)</sup>.
+
 ## Methods
 The dataset is cleaned using `./Preprocessing/Data_Preprocessing.ipynb`.  We balance the dataset by `action_taken_name` and by different protected classes so that we can create a better model and start with unbiased data.
 
@@ -40,3 +46,22 @@ We use the package [LIME](https://github.com/marcotcr/lime) to aid in neural net
 C. Dwork and A. Roth (2014), “The Algorithmic Foundations of Differential Privacy”, Foundations and Trends in Theoretical Computer Science: Vol. 9: No. 3–4, pp 211-407. http://dx.doi.org/10.1561/0400000042.
 
 S. Kuppam, R. Mckenna, D. Pujol, M. Hay, A. Machanavajjhala, and G. Miklau (2019), “Fair Decision Making using Privacy-Protected Data”. https://arxiv.org/abs/1905.12744.
+
+<b id="f1">1</b> 
+
+| Feature  |unprotected group : protected group| approximate ratio  |
+|---|:-:|:-:|
+| Race  | White : non-White  | 3 : 1  |
+| Ethnicity  | not Hispanic/Latino : Hispanic/Latino  |  18 : 1 |
+| Gender  | Male : Female  |  2 : 1 |
+
+[↩](#a1)
+
+<b id="f2">2</b> We have balanced our datasets in the following ways:
+* balance by loan outcome (approval/denial)
+* balance by race
+* balance by ethnicity
+* balance by gender
+* balance by loan outcome and race
+
+[↩](#a2)
