@@ -1,7 +1,11 @@
-# Visualizations
+# `All_Results.pdf`
 
-1. `Logistic_Coefficient_Results.pdf`: Brief explanation of the logistic model's coefficients to show variation and explain properties of the model
-2. `Output_coef.ipynb`: Expanded version of `Logistic_Coefficient_Results.pdf` with code and plots of all coefficients
+PDF of plots relevant to the project. 
+
+Includes:
+
+1. Logistic Coefficient Results: To see all coefficients and code, see [`../Private_LR/Output_coef.ipynb`](https://github.com/cmzou/diffpriv/blob/master/Private_LR/Output_coef.ipynb).
+2. Neural Network Interpretation Results: To see feature weights and code, see [`../TFPrivacy_T`https://github.com/cmzou/diffpriv/blob/master/TFPrivacy_T/InterpretationScript.ipynb].
 
 # Tables
 

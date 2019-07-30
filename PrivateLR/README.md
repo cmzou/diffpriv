@@ -22,4 +22,8 @@ We use 5-fold cross validation. We use epsilons from [2, 0.0625] in powers of 2 
 3. `subset`: use a subset, 10%, of the data
 4. `file_add`: name to add to the end of output and coefficient files, used to distinguish files
 
-Last updated: 7/29/2019
+## `Output_coef.ipynb`
+
+### Description
+
+File that creates the plots from `../Outputs/Logistic_Coefficient_Results.pdf`. Takes in coefficient data, with each row as the coefficient values, and plots them to examine variation.
