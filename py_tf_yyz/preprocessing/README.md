@@ -1,10 +1,8 @@
 # Data Preprocessing
-This document focus on the HDMA-LAR data for North Carolina in 2017. Ideally, this data preprocessing process can be applied to data from any state or year.
-
-In the following document, this dataset will be abbreviated as `nc`.
+This document focus on the HDMA-LAR data for four states (North Carolina, South Carolina, Georgia, and Virginia) in 2017. Ideally, this data preprocessing process can be applied to data from any state or year.
 
 ## Explore data
-Initially, `nc` has 464109 rows and 48 columns.
+Initially, the dataset has 1,619,698 rows and 48 columns.
 
 ## Reduce rows
 TL;DR
@@ -21,7 +19,7 @@ Naively, if the demographic features of a record is missing, it is likely that t
 
 The goal of the machine learning model is to predict whether or not an applicant will be get a loan. Thus, the applications that are ended prematurely (before the financial institution can make a decision) are deleted. Specifically, we remove rows where `action_taken_name` is 'withdrawn', 'closed', or pertaining to 'preapproval'.
 
-We also take out the records with HOEPA loans, which constitue less than 0.01% of `nc` (46 out of 464109 rows).
+We also take out the records with HOEPA loans, which constitute only about 0.01% (235 out of 1,619,698 rows) of the dataset.
 
 Therefore, we can assume for now that deleting these rows will not have a significant impact on the prediction model.
 
@@ -42,7 +40,7 @@ TL;DR
 ---
 We first remove rows where the numerical features equal 0. Values of 0 are assumed as errors since they do not make sense in this context. In addition, this step facilitates the data transformations that follows. 
 
-The histogram plots on the original data reveals that the numerical features (except `hud_median_family_income`) is positively skewed; in particular, `applicant_income_000s` and `loan_amount_000s` are most significantly skewed. Based on this observation, we apply log transformation to these two features and square root transformation to the other five features. The `hud_median_family_income` corresponds to the 17 Metropolitian Statistical Area/Metropolitian Division (MSA/MD) in North Carolina. It is a discrete feature, so no transformation is applied.
+The histogram plots on the original data reveals that the numerical features (except `hud_median_family_income`) is positively skewed; in particular, `applicant_income_000s` and `loan_amount_000s` are most significantly skewed. Based on this observation, we apply log transformation to these two features and square root transformation to the other five features. The `hud_median_family_income` corresponds to the Metropolitian Statistical Area/Metropolitian Divisions (MSA/MD) in the four states. It is a discrete feature, so no transformation is applied.
 
 After the transformations, the numerical data appears normally distributed. We then normalize the features between 0 and 1 using the MinMaxScaler from Sklearn.
 
