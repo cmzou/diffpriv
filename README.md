@@ -2,6 +2,8 @@
 
 This repository contains the outputs and code for the Duke Summer Undergraduate Programs in Computer Science project in 2019. 
 
+For a pdf of more plots, see [`./Outputs/All_Results.pdf`](https://github.com/cmzou/diffpriv/blob/master/Outputs/All_results.pdf)
+
 ## Motivation
 When it comes to protecting individual privacy, common de-identification methods have their limitations. With relevant background information, an attacker can potentially reconstruct the original dataset with high accuracy. In order to provide a stronger privacy guarantee, the Census Bureau will deploy differential privacy for the 2020 Census.
 
@@ -32,8 +34,6 @@ We use the package [LIME](https://github.com/marcotcr/lime) to aid in neural net
 **Finding #3**:  When training with data balanced by action, as privacy guarantee increases, neural net model becomes **more fair**.
 
 **Finding #4**:  As privacy increases, the features that the private neural network deem important **vary more** than the non-private model, potentially showing why accuracy decreases.
-
-For findings from the logistic regression model interpretation, see [here](https://github.com/cmzou/diffpriv/blob/master/Outputs/Logistic_Coefficient_Results.pdf).
 
 ## References
 
