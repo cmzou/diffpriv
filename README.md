@@ -47,7 +47,9 @@ C. Dwork and A. Roth (2014), “The Algorithmic Foundations of Differential Priv
 
 S. Kuppam, R. Mckenna, D. Pujol, M. Hay, A. Machanavajjhala, and G. Miklau (2019), “Fair Decision Making using Privacy-Protected Data”. https://arxiv.org/abs/1905.12744.
 
-<b id="f1">1</b> 
+
+## Footnotes
+<b id="f1">1</b> Imbalanced features and their ratio
 
 | Feature  |unprotected group : protected group| approximate ratio  |
 |---|:-:|:-:|
