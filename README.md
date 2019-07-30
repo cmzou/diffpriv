@@ -25,7 +25,15 @@ We use the package [LIME](https://github.com/marcotcr/lime) to aid in neural net
 
 ## Results
 
-details
+**Finding #1**:  As a ML model becomes more private, AUC can **decrease** by up to 15%.
+
+**Finding #2**:  When training data is balanced by both action and race, both regression and neural net model **achieve optimal fairness**.
+
+**Finding #3**:  When training with data balanced by action, as privacy guarantee increases, neural net model becomes **more fair**.
+
+**Finding #4**:  As privacy increases, the features that the private neural network deem important **vary more** than the non-private model, potentially showing why accuracy decreases.
+
+For findings from the logistic regression model interpretation, see [here](https://github.com/cmzou/diffpriv/blob/master/Outputs/Logistic_Coefficient_Results.pdf).
 
 ## References
 
