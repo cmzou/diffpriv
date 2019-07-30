@@ -13,9 +13,9 @@ We want to find out whether implementing differential privacy would have an impa
 The dataset we use is the Home Mortgage Disclosure Act Loan/Application Register (HMDA-LAR) data from 2017. 
 
 ## Methods
-The dataset is cleaned using `insert_file_here.ipynb`. The reasoning can be found in `location`. We balance the dataset by `action_taken_name` and by different protected classes so that we can create a better model and start with unbiased data.
+The dataset is cleaned using `./Preprocessing/Data_Preprocessing.ipynb`.  We balance the dataset by `action_taken_name` and by different protected classes so that we can create a better model and start with unbiased data.
 
-We measure fairness using disparate impact because it has connections to US labor law. We measure disparate impact with respect to approval, false negative, and false positive because we feel that protecting individuals from being falsely denied is important.
+We measure fairness using disparate impact because it has connections to US labor law. We measure disparate impact with respect to approval, false negative, and false positive.
 
 We build classifiers to predict whether an applicant's loan application was accepted or denied. We are using two differentially private packages for machine learning, [Tensorflow Privacy](https://github.com/tensorflow/privacy) and [PrivateLR](https://cran.r-project.org/web/packages/PrivateLR/PrivateLR.pdf) to compare how privacy affects different algorithms. We use neural networks and regularized logistic regression.
 
