@@ -2,9 +2,9 @@
 
 This repository contains the outputs and code for the Duke Summer Undergraduate Programs in Computer Science project in 2019. 
 
-For a pdf of more plots, see [`./Outputs/All_Results.pdf`](https://github.com/cmzou/diffpriv/blob/master/Outputs/All_results.pdf)
+Additional plots of AUC and disparate impact can be found on this interactive [web app](https://diffpriv-viz.herokuapp.com/).
 
-Additional plots can be found on this interactive [web app](https://diffpriv-viz.herokuapp.com/).
+For a pdf of more feature rankings plots, see [`./Outputs/All_Results.pdf`](https://github.com/cmzou/diffpriv/blob/master/Outputs/All_results.pdf).
 
 ## Motivation
 When it comes to protecting individual privacy, common de-identification methods have their limitations. With relevant background information, an attacker can potentially reconstruct the original dataset with high accuracy. In order to provide a stronger privacy guarantee, the Census Bureau will deploy differential privacy for the 2020 Census.
