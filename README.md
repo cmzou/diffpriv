@@ -47,6 +47,8 @@ We use the package [LIME](https://github.com/marcotcr/lime) to aid in neural net
 
 C. Dwork and A. Roth (2014), “The Algorithmic Foundations of Differential Privacy”, Foundations and Trends in Theoretical Computer Science: Vol. 9: No. 3–4, pp 211-407. http://dx.doi.org/10.1561/0400000042.
 
+M. Hay, A. Machanavajjhala, G. Miklau, Y. Chen, D. Zhang (2015), “Principled Evaluation of Differentially Private Algorithms using DPBench”, In Proceedings of the 2016 International Conference on Management of Data (SIGMOD '16). ACM, New York, NY, USA, pp 139-154. https://arxiv.org/abs/1512.04817.
+
 S. Kuppam, R. Mckenna, D. Pujol, M. Hay, A. Machanavajjhala, and G. Miklau (2019), “Fair Decision Making using Privacy-Protected Data”. https://arxiv.org/abs/1905.12744.
 
 
