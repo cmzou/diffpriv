@@ -178,8 +178,13 @@ process <- function(opt) {
       eps_write <- eps
     }
     
-    m <- dplr(f,train, eps=eps, op=op, do.scale=need_scale, threshold="0.5", lambda=0.001)
+    lambda <- 0.001
+    m <- dplr(f,train, eps=eps, op=op, do.scale=need_scale, threshold="0.5", lambda=lambda)
     p <- m$pred(test, type="probabilities")
+    
+    if(m$lambda != lambda){ # want consistent lambda across epsilon
+      stop(paste0("Lambda is too small. Use ", m$lambda))
+    }
     
     ret <- test
     # Change column names to be used later for evaluation
