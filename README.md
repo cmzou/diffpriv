@@ -6,6 +6,8 @@ Additional plots of AUC and disparate impact can be found on this interactive [w
 
 For a pdf of more feature rankings plots, see [`./Outputs/All_Results.pdf`](https://github.com/cmzou/diffpriv/blob/master/Outputs/All_results.pdf).
 
+We presented our summer research findings at Computer Science Summer Research Poster Session at Duke University. For more details, see [Protecting Individual Privacy Using Differential Privacy Poster](https://www.cs.duke.edu/sites/default/files/2019-08/privacyPoster.pdf).
+
 ## Motivation
 When it comes to protecting individual privacy, common de-identification methods have their limitations. With relevant background information, an attacker can potentially reconstruct the original dataset with high accuracy. In order to provide a stronger privacy guarantee, the Census Bureau will deploy differential privacy for the 2020 Census.
 
